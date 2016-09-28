@@ -4,30 +4,57 @@ import Data.List
 import Data.Binary.Put
 import qualified Data.Text as T
 import qualified Data.ByteString.Lazy as BL
+--import qualified Data.ByteString as B
 
 data Section = Section {
     kind :: T.Text,
-    instructions :: [Instruction]
+    instructions :: [Instruction],
+    tokens :: [Token]
 }
 
 data Instruction = Instruction {
     labels :: [T.Text],
-    source :: T.Text,
-    command :: T.Text,
     operands :: [T.Text]
 }
 
-assembledLength :: Instruction -> Int
-assembledLength inst = 8
+data Relocation = Relocation {
+    sourceSection :: Section,
+    sourceOffset :: Int,
+    targetSection :: Section,
+    targetOffset :: Int
+}
+
+data Label = Label {
+    label :: T.Text,
+    target :: Token
+}
+
+data Token = Token {
+    instruction :: Instruction,
+    operandIndex :: Int,
+    source :: T.Text,
+    offset :: Int
+}
+
+instructionToTokens :: Instruction -> [Token]
+instructionToTokens inst = do
+    let numbered = zip (operands inst) [1,2..]
+    [Token inst (snd n) (fst n) 0 | n <- numbered]
+
+generateTokens :: Section -> (Section, [Label])
+generateTokens section = do
+    let insts = instructions section
+    let tokens = concat [instructionToTokens i | i <- insts]
+    (Section (kind section) insts tokens, [])
 
 parseInstruction :: [T.Text] -> T.Text -> Instruction
 parseInstruction labels source = do
     let parts = T.break (== ' ') source
-    let command = fst parts
-    let operands = [o | o <- map T.strip (T.split (== ',') (snd parts)),
+    let operands = [fst parts] ++
+                   [o | o <- map T.strip (T.split (== ',') (snd parts)),
                     not (T.null o)]
 
-    Instruction labels source command operands
+    Instruction labels operands
 
 parseInstructions [] = []
 parseInstructions lines = do
@@ -52,7 +79,7 @@ parseSections kind lines = do
     let broken = break (startsWithSection) lines
     let remaining = snd broken
     let nextKind = T.drop 9 (head remaining)
-    [Section kind (parseInstructions (fst broken))] ++
+    [Section kind (parseInstructions (fst broken)) []] ++
         parseSections nextKind (drop 1 remaining)
 
 showSection :: Section -> IO ()
@@ -63,11 +90,25 @@ showSection s = do
 showInstruction :: Instruction -> IO ()
 showInstruction i = do
     putStr (T.unpack (T.intercalate (T.pack ",") (labels i)))
-    putStr (if (null (labels i)) then "" else ">")
-    putStr (T.unpack (command i))
-    putStr (if (null (operands i)) then "" else "|")
-    putStr (T.unpack (T.intercalate (T.pack ",") (operands i)))
+    putStr (if (null (labels i)) then "" else ":")
+    putStr (T.unpack (T.intercalate (T.pack "|") (operands i)))
     putStr "\n"
+
+showRelocation :: Relocation -> IO ()
+showRelocation r = do
+    putStr "Relo "
+    putStr (T.unpack (kind (sourceSection r)))
+    putStr "+"
+    putStr (show (sourceOffset r))
+    putStr " -> "
+    putStr (T.unpack (kind (targetSection r)))
+    putStr "+"
+    putStr (show (targetOffset r))
+    putStr "\n"
+
+showTokens :: [Token] -> IO ()
+showTokens t = do
+    
 
 trimLines x = map T.strip x
 removeBlankLines x = [y | y <- x, not (T.null y)]
@@ -100,4 +141,10 @@ main = do
     showSection (sections !! 2)
     putStr "\n"
 
+    let sections2 = [fst a | a <- (map generateTokens sections)]
+
+    showTokens (tokens (sections !! 0))
+
+    --let x = runPut assemble
+    --BL.putStr x
     --BL.putStr $ runPut assemble
