@@ -33,13 +33,20 @@ data Token = Token {
     instruction :: Instruction,
     operandIndex :: Int,
     source :: T.Text,
-    offset :: Int
+    offset :: Int,
+    size :: Int
 }
+
+getTokens :: Instruction -> Int -> Int -> [T.Text] -> [Token]
+getTokens inst index offset [] = []
+getTokens inst index offset operandsRemaining = do
+    let size = 8
+    [Token inst index (head operandsRemaining) offset size] ++
+        (getTokens inst (succ index) (offset + size) (tail operandsRemaining))
 
 instructionToTokens :: Instruction -> [Token]
 instructionToTokens inst = do
-    let numbered = zip (operands inst) [1,2..]
-    [Token inst (snd n) (fst n) 0 | n <- numbered]
+    getTokens inst 0 0 (operands inst)
 
 generateTokens :: Section -> (Section, [Label])
 generateTokens section = do
@@ -106,9 +113,15 @@ showRelocation r = do
     putStr (show (targetOffset r))
     putStr "\n"
 
-showTokens :: [Token] -> IO ()
-showTokens t = do
-    
+showToken :: Token -> [Char]
+showToken t = (show (offset t)) ++ ": " ++ (T.unpack (source t))
+
+showTokens :: [Token] -> [Char]
+showTokens t = intercalate "\n" (map showToken t)
+
+showSectionTokens :: Section -> [Char]
+showSectionTokens s = "[" ++ (T.unpack (kind s)) ++ "]\n" ++
+                      (showTokens (tokens s))
 
 trimLines x = map T.strip x
 removeBlankLines x = [y | y <- x, not (T.null y)]
@@ -141,9 +154,10 @@ main = do
     showSection (sections !! 2)
     putStr "\n"
 
+    putStr "--------- TOKENS ------------\n"
     let sections2 = [fst a | a <- (map generateTokens sections)]
 
-    showTokens (tokens (sections !! 0))
+    putStr (intercalate "\n\n" (map showSectionTokens sections2))
 
     --let x = runPut assemble
     --BL.putStr x
