@@ -44,14 +44,14 @@ getTokens inst index offset operandsRemaining = do
     [Token inst index (head operandsRemaining) offset size] ++
         (getTokens inst (succ index) (offset + size) (tail operandsRemaining))
 
-instructionToTokens :: Instruction -> [Token]
-instructionToTokens inst = do
-    getTokens inst 0 0 (operands inst)
+instructionToTokens :: Instruction -> Int -> [Token]
+instructionToTokens inst offset = do
+    getTokens inst 0 offset (operands inst)
 
 generateTokens :: Section -> (Section, [Label])
 generateTokens section = do
     let insts = instructions section
-    let tokens = concat [instructionToTokens i | i <- insts]
+    let tokens = concat [instructionToTokens i 0 | i <- insts]
     (Section (kind section) insts tokens, [])
 
 parseInstruction :: [T.Text] -> T.Text -> Instruction
