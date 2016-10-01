@@ -9,8 +9,11 @@ section .text
 ; Greetings
 
 _start:
-    mov rax, 60
+    mov rax, 1
+    mov rdi, 1
+    mov rsi, message
+    mov rdx, 14
 
-    ; Hello
+    mov rax, 60
     mov rdi, 77         ; stuff and things
     syscall
