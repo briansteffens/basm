@@ -116,25 +116,144 @@ trimLines x = map T.strip x
 removeBlankLines x = [y | y <- x, not (T.null y)]
 removeComments x = [y | y <- x, (T.head y) /= ';']
 
+data QuoteChar = QuoteChar {
+    char :: Char,
+    quoted :: Bool,
+    bracketed :: Bool
+}
+
+data TokenType = Quote | Bracket | Loose
+
+data Token = Token {
+    tokenType :: TokenType,
+    contents :: [Char]
+}
+
+parseQuotesInner :: [Char] -> Maybe Char -> Bool -> Bool -> [QuoteChar]
+parseQuotesInner [] _ _ _ = []
+parseQuotesInner input previous inQuote inBracket = do
+    let current = head input
+    let escaped = case previous of Just c  -> c == '\\'
+                                   Nothing -> False
+    let isQuote = (not escaped) && current == '"'
+    let newInQuote = case inQuote of False -> isQuote
+                                     True  -> not isQuote
+    let tempNewInBracket = case inBracket of False -> current == '['
+                                             True  -> current /= ']'
+    let newInBracket = (not inQuote) && tempNewInBracket
+    let inner = parseQuotesInner (tail input) (Just current) newInQuote
+                                 newInBracket
+    [(QuoteChar current (inQuote && (not isQuote))
+      (newInBracket || inBracket))] ++ inner
+
+parseQuotes :: [Char] -> [QuoteChar]
+parseQuotes input = parseQuotesInner input Nothing False False
+
+showQuoteChar :: QuoteChar -> [Char]
+showQuoteChar parsed =
+    [(char parsed)] ++
+    (if (quoted parsed) then " quoted" else "") ++
+    (if (bracketed parsed) then " bracketed" else "")
+
+showQuoteChars :: [QuoteChar] -> [Char]
+showQuoteChars parsed = intercalate "\n" (map showQuoteChar parsed)
+
+stripComment :: [QuoteChar] -> [QuoteChar]
+stripComment input = fst (break (\s -> (char s) == ';' &&
+                                       (not (quoted s)) &&
+                                       (not (bracketed s))) input)
+
+isDelimiter :: Char -> Bool
+isDelimiter input = input == ' ' ||
+                    input == ':' ||
+                    input == '\t' ||
+                    input == ','
+
+splitQuoteCharsInner :: [QuoteChar] -> [QuoteChar] -> [[QuoteChar]]
+splitQuoteCharsInner [] accumulator = [accumulator]
+splitQuoteCharsInner remaining accumulator = do
+    let current = head remaining
+    let theRest = tail remaining
+
+    let split = (isDelimiter (char current)) &&
+                (not (quoted current)) &&
+                (not (bracketed current))
+
+    let ret = case split of False -> []
+                            True  -> accumulator
+
+    -- Semicolon is an abnormal delimiter: add it to the return
+    let ret2 = case (char current) of ':' -> accumulator ++ [current]
+                                      _   -> ret
+
+    let newNext = case split of False -> accumulator ++ [current]
+                                True  -> []
+
+    [ret2] ++ (splitQuoteCharsInner theRest newNext)
+
+splitQuoteChars :: [QuoteChar] -> [[QuoteChar]]
+splitQuoteChars input = splitQuoteCharsInner input []
+
+removeEmpty :: [[QuoteChar]] -> [[QuoteChar]]
+removeEmpty input = [s | s <- input, not (null s)]
+
+toText :: [QuoteChar] -> T.Text
+toText x = (T.pack [char s | s <- x])
+
+toTextArray :: [[QuoteChar]] -> [T.Text]
+toTextArray x = [toText s | s <- x]
+
+processLine :: [Char] -> [T.Text]
+processLine = toTextArray .
+              removeEmpty .
+              splitQuoteChars .
+              stripComment .
+              parseQuotes
+
+removeEmptyLines :: [[T.Text]] -> [[T.Text]]
+removeEmptyLines input = [i | i <- input, (length i) > 0]
+
+showLine lines = "LINE:\n  " ++ (intercalate "\n  " (map T.unpack lines))
+
 main :: IO ()
 main = do
     contents <- getContents
+    let sourceLines = lines contents
+    let processed = map processLine sourceLines
+    let emptied = removeEmptyLines processed
+    putStr (intercalate "\n" (map showLine emptied))
 
-    let lines = ((removeComments .
-                  removeBlankLines .
-                  trimLines .
-                  T.lines .
-                  T.pack
-                 ) contents)
+    --let (sections, labels) = parseSections (T.pack "none") emptied
 
-    let (sections, labels) = parseSections (T.pack "none") lines
-    let relocations = getRelocations sections labels
-
-    putStr (intercalate "\n" (map showSection sections))
-
-    putStr "Relocations:\n  "
-    putStr (intercalate "\n  " (map showRelocation relocations))
+    --let quoteChars = map parseQuotes sourceLines
+    --putStr (intercalate "\n" (map showQuoteChars quoteChars))
+    --let stripped = map stripComment quoteChars
+    --putStr (intercalate "\n" (map showQuoteChars stripped))
+    --let chunks = map splitQuoteChars stripped
+    --putStr (intercalate "\n----\n" (map showQuoteChars chunks))
+    --let emptied = removeEmpty chunks
+    --putStr (intercalate "\n----\n" (map showQuoteChars emptied))
+    --putStr "\nTEXTS:\n"
+    --let texts = toTextArray emptied
+    --putStr (intercalate "\n" (map T.unpack texts))
     putStr "\n"
+    --contents <- getContents
+
+    --let lines = ((removeComments .
+    --              removeBlankLines .
+    --              trimLines .
+    --              T.lines .
+    --              T.pack
+    --             ) contents)
+
+    --let (sections, labels) = parseSections (T.pack "none") lines
+    --let relocations = getRelocations sections labels
+
+    --putStr (intercalate "\n" (map showSection sections))
+
+    --putStr "Relocations:\n  "
+    --putStr (intercalate "\n  " (map showRelocation relocations))
+    --putStr "\n"
 
 
 showSection :: Section -> [Char]
