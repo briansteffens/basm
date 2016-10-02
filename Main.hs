@@ -13,18 +13,12 @@ data Section = Section {
 }
 
 data Instruction = Instruction {
-    labels :: [T.Text],             -- only for debug printing
-    source :: T.Text,
     command :: T.Text,
-    operands :: [Operand],
-    size :: Int,
-    offset :: Int
+    operands :: [Operand]
 }
 
 data Operand = Operand {
-    text :: T.Text,
-    operandSize :: Int,
-    operandOffset :: Int
+    text :: T.Text
 }
 
 data Label = Label {
@@ -37,84 +31,18 @@ data Relocation = Relocation {
     target :: Label
 }
 
-parseOperand :: T.Text -> [T.Text] -> Int -> Int -> Operand
-parseOperand command opers index off = Operand (opers !! index) 8 off
-
-parseOperands :: T.Text -> [T.Text] -> [T.Text] -> Int -> Int -> [Operand]
-parseOperands _ _ [] _ _ = []
-parseOperands command opers opersLeft index off = do
-    let current = parseOperand command opers index off
-    [current] ++ parseOperands command opers (tail opersLeft) (succ index)
-                               (off + (operandSize current))
-
-parseInstruction :: [T.Text] -> T.Text -> Int -> Instruction
-parseInstruction labels source off = do
-    let parts = T.break (== ' ') source
-    let command = fst parts
-    let opcodeSize = 2
-    let operandText = [o | o <- map T.strip (T.split (== ',') (snd parts)),
-                       not (T.null o)]
-    let operands = parseOperands command operandText operandText 0
-                                 (off + opcodeSize)
-
-    let commandSize = opcodeSize + (sum [operandSize o | o <- operands])
-
-    Instruction labels source (fst parts) operands commandSize off
-
-parseInstructions :: [T.Text] -> Int -> ([Instruction], [Label])
-parseInstructions [] _ = ([], [])
-parseInstructions lines off = do
-    -- Parse any previous-line labels
-    let parts = break (\s -> (T.last s) /= ':') lines
-    let preLabels = [T.init s | s <- fst parts]
-    let inst = head (snd parts)
-
-    -- Parse same-line label (message: db "hi")
-    let labelParts = T.breakOn (T.pack ":") inst
-    let noLabel = T.null (snd labelParts) ||
-                  T.isInfixOf (T.pack "\"") (fst labelParts)
-    let labelNames = preLabels ++ (if noLabel then [] else [fst labelParts])
-
-    let source = if noLabel then inst
-                 else (T.strip (T.drop 1 (snd labelParts)))
-
-    let inst = parseInstruction labelNames source off
-
-    let labels = [Label n inst | n <- labelNames]
-
-    let inner = parseInstructions (drop 1 (snd parts)) (off + (size inst))
-    ([inst] ++ (fst inner), labels ++ (snd inner))
-
-parseSections :: T.Text -> [T.Text] -> ([Section], [Label])
-parseSections _ [] = ([], [])
-parseSections kind lines = do
-    let startsWithSection = \s -> (T.take 9 s) == (T.pack "section .")
-    let broken = break (startsWithSection) lines
-    let remaining = snd broken
-    let nextKind = trace (T.unpack kind) (T.drop 9 (head remaining))
-    let parsed = parseInstructions (fst broken) 0
-    let instructions = fst parsed
-    let labels = snd parsed
-    let section = Section kind instructions
-    let inner = parseSections nextKind (drop 1 remaining)
-    ([section] ++ (fst inner), labels ++ (snd inner))
-
-getRelocation :: [Label] -> Operand -> [Relocation]
-getRelocation labels operand = do
-    let label = find (\l -> (name l) == (text operand)) labels
-    case label of
-        Just l -> [Relocation operand l]
-        Nothing -> []
-
-getRelocations :: [Section] -> [Label] -> [Relocation]
-getRelocations sections labels = do
-    let allInstructions = concat [instructions s | s <- sections]
-    let allOperands = concat [operands i | i <- allInstructions]
-    concat (map (getRelocation labels) allOperands)
-
-trimLines x = map T.strip x
-removeBlankLines x = [y | y <- x, not (T.null y)]
-removeComments x = [y | y <- x, (T.head y) /= ';']
+--getRelocation :: [Label] -> Operand -> [Relocation]
+--getRelocation labels operand = do
+--    let label = find (\l -> (name l) == (text operand)) labels
+--    case label of
+--        Just l -> [Relocation operand l]
+--        Nothing -> []
+--
+--getRelocations :: [Section] -> [Label] -> [Relocation]
+--getRelocations sections labels = do
+--    let allInstructions = concat [instructions s | s <- sections]
+--    let allOperands = concat [operands i | i <- allInstructions]
+--    concat (map (getRelocation labels) allOperands)
 
 data QuoteChar = QuoteChar {
     char :: Char,
@@ -215,45 +143,75 @@ removeEmptyLines input = [i | i <- input, (length i) > 0]
 
 showLine lines = "LINE:\n  " ++ (intercalate "\n  " (map T.unpack lines))
 
+mergeLabelsInner :: [T.Text] -> [[T.Text]] -> [[T.Text]]
+mergeLabelsInner _ [] = []
+mergeLabelsInner labels remaining = do
+    let current = head remaining
+
+    let allLabels = all (\s -> (T.last s) == ':') current
+
+    -- TODO: more expressive way to do these next two lines?
+    let ret = case allLabels of False -> labels ++ current
+                                True  -> []
+
+    let innerLabels = case allLabels of False -> []
+                                        True  -> labels ++ current
+
+    let inner = mergeLabelsInner innerLabels (tail remaining)
+
+    [ret] ++ inner
+
+mergeLabels :: [[T.Text]] -> [[T.Text]]
+mergeLabels input = mergeLabelsInner [] input
+
+isLabel :: T.Text -> Bool
+isLabel input = (T.last input) == ':'
+
+-- Break same-line labels out into separate lines
+breakOutLabels :: [[T.Text]] -> [[T.Text]]
+breakOutLabels [] = []
+breakOutLabels lines = do
+    let current = head lines
+    let remaining = tail lines
+
+    let broken = break (\s -> not (isLabel s)) current
+
+    let labels = [[l] | l <- (fst broken)]
+
+    labels ++ [(snd broken)] ++ (breakOutLabels remaining)
+
+parseInstructions :: [[T.Text]] -> ([Label], [Instruction])
+parseInstructions [] = ([], [])
+parseInstructions lines = do
+    let current = head lines
+    let parts = break (\s -> (not (isLabel s))) current
+    let labelNames = fst parts
+    let nonLabel = snd parts
+
+    let operands = [Operand o | o <- tail nonLabel]
+    let instruction = Instruction (head nonLabel) operands
+
+    let labels = [Label n instruction | n <- labelNames]
+
+    let inner = parseInstructions (tail lines)
+    (labels ++ (fst inner), [instruction] ++ (snd inner))
+
 main :: IO ()
 main = do
     contents <- getContents
     let sourceLines = lines contents
     let processed = map processLine sourceLines
-    let emptied = removeEmptyLines processed
+    let merged = mergeLabels processed
+    let emptied = removeEmptyLines merged
     putStr (intercalate "\n" (map showLine emptied))
 
-    --let (sections, labels) = parseSections (T.pack "none") emptied
+    let (labels, instructions) = parseInstructions emptied
 
-    --let quoteChars = map parseQuotes sourceLines
-    --putStr (intercalate "\n" (map showQuoteChars quoteChars))
-    --let stripped = map stripComment quoteChars
-    --putStr (intercalate "\n" (map showQuoteChars stripped))
-    --let chunks = map splitQuoteChars stripped
-    --putStr (intercalate "\n----\n" (map showQuoteChars chunks))
-    --let emptied = removeEmpty chunks
-    --putStr (intercalate "\n----\n" (map showQuoteChars emptied))
-    --putStr "\nTEXTS:\n"
-    --let texts = toTextArray emptied
-    --putStr (intercalate "\n" (map T.unpack texts))
+    putStr (intercalate "\n" (map showInstruction instructions))
+
     putStr "\n"
-    --contents <- getContents
 
-    --let lines = ((removeComments .
-    --              removeBlankLines .
-    --              trimLines .
-    --              T.lines .
-    --              T.pack
-    --             ) contents)
-
-    --let (sections, labels) = parseSections (T.pack "none") lines
     --let relocations = getRelocations sections labels
-
-    --putStr (intercalate "\n" (map showSection sections))
-
-    --putStr "Relocations:\n  "
-    --putStr (intercalate "\n  " (map showRelocation relocations))
-    --putStr "\n"
 
 
 showSection :: Section -> [Char]
@@ -262,15 +220,15 @@ showSection s = "[" ++ (T.unpack (kind s)) ++ "]\n" ++
 
 showInstruction :: Instruction -> [Char]
 showInstruction i =
-    (T.unpack (T.intercalate (T.pack ",") (labels i))) ++
-    (if (null (labels i)) then "" else ":\n") ++
-    ("  " ++ (show (offset i)) ++ ":\t" ++ (T.unpack (command i))) ++ "\n  " ++
+    --(T.unpack (T.intercalate (T.pack ",") (labels i))) ++
+    --(if (null (labels i)) then "" else ":\n") ++
+    ((T.unpack (command i))) ++ "\n  " ++
     (intercalate "\n  " (map showOperand (operands i))) ++ "\n"
 
 showOperand :: Operand -> [Char]
-showOperand o = (show (operandOffset o)) ++ ":\t" ++ (T.unpack (text o))
+showOperand o = T.unpack (text o)
 
-showRelocation :: Relocation -> [Char]
-showRelocation relocation =
-    (show (operandOffset (replace relocation))) ++ " => " ++
-    (T.unpack (name (target relocation)))
+--showRelocation :: Relocation -> [Char]
+--showRelocation relocation =
+--    (show (operandOffset (replace relocation))) ++ " => " ++
+--    (T.unpack (name (target relocation)))
