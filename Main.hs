@@ -196,9 +196,28 @@ parseInstructions lines = do
     let inner = parseInstructions (tail lines)
     (labels ++ (fst inner), [instruction] ++ (snd inner))
 
+parseSectionsInner :: [Instruction] -> T.Text -> [Section]
+parseSectionsInner [] _ = []
+parseSectionsInner instructions kind = do
+    let broken = break (\s -> (command s) == (T.pack "section")) instructions
+
+    let ret = Section kind (fst broken)
+
+    let nextSection = text (head (operands (head (snd broken))))
+
+    let anyLeft = not (null (snd broken))
+    let remaining = case anyLeft of False -> []
+                                    True  -> tail (snd broken)
+
+    [ret] ++ parseSectionsInner remaining nextSection
+
+parseSections :: [Instruction] -> [Section]
+parseSections instructions = parseSectionsInner instructions (T.pack "base") 
+
 main :: IO ()
 main = do
     contents <- getContents
+
     let sourceLines = lines contents
     let processed = map processLine sourceLines
     let merged = mergeLabels processed
@@ -206,8 +225,11 @@ main = do
     putStr (intercalate "\n" (map showLine emptied))
 
     let (labels, instructions) = parseInstructions emptied
-
     putStr (intercalate "\n" (map showInstruction instructions))
+    putStr (showLabels labels)
+
+    let sections = parseSections instructions
+    putStr (showSections sections)    
 
     putStr "\n"
 
@@ -218,6 +240,10 @@ showSection :: Section -> [Char]
 showSection s = "[" ++ (T.unpack (kind s)) ++ "]\n" ++
                 (intercalate "\n" (map showInstruction (instructions s)))
 
+showSections :: [Section] -> [Char]
+showSections s = "--SECTIONS:-----------------------\n\n" ++
+                 (intercalate "\n" (map showSection s))
+
 showInstruction :: Instruction -> [Char]
 showInstruction i =
     --(T.unpack (T.intercalate (T.pack ",") (labels i))) ++
@@ -227,6 +253,14 @@ showInstruction i =
 
 showOperand :: Operand -> [Char]
 showOperand o = T.unpack (text o)
+
+showLabel :: Label -> [Char]
+showLabel label = (T.unpack (name label)) ++ " -> " ++
+                  (showInstruction (instruction label))
+
+showLabels :: [Label] -> [Char]
+showLabels labels = "--LABELS:-----------------------\n\n" ++
+                    (intercalate "\n" (map showLabel labels))
 
 --showRelocation :: Relocation -> [Char]
 --showRelocation relocation =
