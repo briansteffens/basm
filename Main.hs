@@ -2,27 +2,26 @@ module Main where
 
 import Data.List
 import Data.Binary.Put
-import qualified Data.Text as T
 import qualified Data.ByteString.Lazy as BL
 --import qualified Data.ByteString as B
 import Debug.Trace (trace)
 
 data Section = Section {
-    kind :: T.Text,
+    kind :: [Char],
     instructions :: [Instruction]
 }
 
 data Instruction = Instruction {
-    command :: T.Text,
+    command :: [Char],
     operands :: [Operand]
 }
 
 data Operand = Operand {
-    text :: T.Text
+    text :: [Char]
 }
 
 data Label = Label {
-    name :: T.Text,
+    name :: [Char],
     instruction :: Instruction
 }
 
@@ -125,30 +124,30 @@ splitQuoteChars input = splitQuoteCharsInner input []
 removeEmpty :: [[QuoteChar]] -> [[QuoteChar]]
 removeEmpty input = [s | s <- input, not (null s)]
 
-toText :: [QuoteChar] -> T.Text
-toText x = (T.pack [char s | s <- x])
+toText :: [QuoteChar] -> [Char]
+toText x = [char s | s <- x]
 
-toTextArray :: [[QuoteChar]] -> [T.Text]
+toTextArray :: [[QuoteChar]] -> [[Char]]
 toTextArray x = [toText s | s <- x]
 
-processLine :: [Char] -> [T.Text]
+processLine :: [Char] -> [[Char]]
 processLine = toTextArray .
               removeEmpty .
               splitQuoteChars .
               stripComment .
               parseQuotes
 
-removeEmptyLines :: [[T.Text]] -> [[T.Text]]
+removeEmptyLines :: [[[Char]]] -> [[[Char]]]
 removeEmptyLines input = [i | i <- input, (length i) > 0]
 
-showLine lines = "LINE:\n  " ++ (intercalate "\n  " (map T.unpack lines))
+showLine lines = "LINE:\n  " ++ (intercalate "\n  " lines)
 
-mergeLabelsInner :: [T.Text] -> [[T.Text]] -> [[T.Text]]
+mergeLabelsInner :: [[Char]] -> [[[Char]]] -> [[[Char]]]
 mergeLabelsInner _ [] = []
 mergeLabelsInner labels remaining = do
     let current = head remaining
 
-    let allLabels = all (\s -> (T.last s) == ':') current
+    let allLabels = all (\s -> last s == ':') current
 
     -- TODO: more expressive way to do these next two lines?
     let ret = case allLabels of False -> labels ++ current
@@ -161,14 +160,14 @@ mergeLabelsInner labels remaining = do
 
     [ret] ++ inner
 
-mergeLabels :: [[T.Text]] -> [[T.Text]]
+mergeLabels :: [[[Char]]] -> [[[Char]]]
 mergeLabels input = mergeLabelsInner [] input
 
-isLabel :: T.Text -> Bool
-isLabel input = (T.last input) == ':'
+isLabel :: [Char] -> Bool
+isLabel input = last input == ':'
 
 -- Break same-line labels out into separate lines
-breakOutLabels :: [[T.Text]] -> [[T.Text]]
+breakOutLabels :: [[[Char]]] -> [[[Char]]]
 breakOutLabels [] = []
 breakOutLabels lines = do
     let current = head lines
@@ -180,7 +179,7 @@ breakOutLabels lines = do
 
     labels ++ [(snd broken)] ++ (breakOutLabels remaining)
 
-parseInstructions :: [[T.Text]] -> ([Label], [Instruction])
+parseInstructions :: [[[Char]]] -> ([Label], [Instruction])
 parseInstructions [] = ([], [])
 parseInstructions lines = do
     let current = head lines
@@ -196,10 +195,10 @@ parseInstructions lines = do
     let inner = parseInstructions (tail lines)
     (labels ++ (fst inner), [instruction] ++ (snd inner))
 
-parseSectionsInner :: [Instruction] -> T.Text -> [Section]
+parseSectionsInner :: [Instruction] -> [Char] -> [Section]
 parseSectionsInner [] _ = []
 parseSectionsInner instructions kind = do
-    let broken = break (\s -> (command s) == (T.pack "section")) instructions
+    let broken = break (\s -> command s == "section") instructions
 
     let ret = Section kind (fst broken)
 
@@ -212,7 +211,7 @@ parseSectionsInner instructions kind = do
     [ret] ++ parseSectionsInner remaining nextSection
 
 parseSections :: [Instruction] -> [Section]
-parseSections instructions = parseSectionsInner instructions (T.pack "base") 
+parseSections instructions = parseSectionsInner instructions "base"
 
 main :: IO ()
 main = do
@@ -237,7 +236,7 @@ main = do
 
 
 showSection :: Section -> [Char]
-showSection s = "[" ++ (T.unpack (kind s)) ++ "]\n" ++
+showSection s = "[" ++ (kind s) ++ "]\n" ++
                 (intercalate "\n" (map showInstruction (instructions s)))
 
 showSections :: [Section] -> [Char]
@@ -248,14 +247,14 @@ showInstruction :: Instruction -> [Char]
 showInstruction i =
     --(T.unpack (T.intercalate (T.pack ",") (labels i))) ++
     --(if (null (labels i)) then "" else ":\n") ++
-    ((T.unpack (command i))) ++ "\n  " ++
+    (command i) ++ "\n  " ++
     (intercalate "\n  " (map showOperand (operands i))) ++ "\n"
 
 showOperand :: Operand -> [Char]
-showOperand o = T.unpack (text o)
+showOperand o = text o
 
 showLabel :: Label -> [Char]
-showLabel label = (T.unpack (name label)) ++ " -> " ++
+showLabel label = (name label) ++ " -> " ++
                   (showInstruction (instruction label))
 
 showLabels :: [Label] -> [Char]
