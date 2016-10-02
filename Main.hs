@@ -12,23 +12,22 @@ data Section = Section {
 }
 
 data Instruction = Instruction {
+    labels :: [[Char]],
     command :: [Char],
-    operands :: [Operand]
+    operands :: [Operand],
+    instructionOffset :: Int
 }
 
 data Operand = Operand {
-    text :: [Char]
+    text :: [Char],
+    operandOffset :: Int,
+    operandSize :: Int
 }
 
-data Label = Label {
-    name :: [Char],
-    instruction :: Instruction
-}
-
-data Relocation = Relocation {
-    replace :: Operand,
-    target :: Label
-}
+--data Relocation = Relocation {
+--    replace :: Operand,
+--    target :: Label
+--}
 
 --getRelocation :: [Label] -> Operand -> [Relocation]
 --getRelocation labels operand = do
@@ -163,46 +162,51 @@ mergeLabelsInner labels remaining = do
 mergeLabels :: [[[Char]]] -> [[[Char]]]
 mergeLabels input = mergeLabelsInner [] input
 
-isLabel :: [Char] -> Bool
-isLabel input = last input == ':'
+commandSize :: [Char] -> Int
+commandSize cmd = 4
 
--- Break same-line labels out into separate lines
-breakOutLabels :: [[[Char]]] -> [[[Char]]]
-breakOutLabels [] = []
-breakOutLabels lines = do
+parseOperands :: [[Char]] -> Int -> [Operand]
+parseOperands [] _ = []
+parseOperands operands offset = do
+    let ret = Operand (head operands) offset 8
+
+    let inner = parseOperands (tail operands) (offset + (operandSize ret))
+
+    [ret] ++ inner
+
+parseInstructionsInner :: [[[Char]]] -> Int -> [Instruction]
+parseInstructionsInner [] _ = []
+parseInstructionsInner lines offset = do
     let current = head lines
-    let remaining = tail lines
-
-    let broken = break (\s -> not (isLabel s)) current
-
-    let labels = [[l] | l <- (fst broken)]
-
-    labels ++ [(snd broken)] ++ (breakOutLabels remaining)
-
-parseInstructions :: [[[Char]]] -> ([Label], [Instruction])
-parseInstructions [] = ([], [])
-parseInstructions lines = do
-    let current = head lines
-    let parts = break (\s -> (not (isLabel s))) current
-    let labelNames = fst parts
+    let parts = break (\s -> last s /= ':') current
+    let labels = [init l | l <- fst parts]
     let nonLabel = snd parts
+    let operandStrings = tail nonLabel
+    let command = head nonLabel
 
-    let operands = [Operand o | o <- tail nonLabel]
-    let instruction = Instruction (head nonLabel) operands
+    let size = commandSize command
 
-    let labels = [Label n instruction | n <- labelNames]
+    let operands = parseOperands operandStrings (offset + size)
+    let instruction = Instruction labels command operands offset
 
-    let inner = parseInstructions (tail lines)
-    (labels ++ (fst inner), [instruction] ++ (snd inner))
+    let operandsSize = sum [operandSize o | o <- operands]
 
-parseSectionsInner :: [Instruction] -> [Char] -> [Section]
+    [instruction] ++ parseInstructionsInner (tail lines)
+                                            (offset + size + operandsSize)
+
+parseInstructions :: [[[Char]]] -> [Instruction]
+parseInstructions lines = parseInstructionsInner lines 0
+
+parseSectionsInner :: [[[Char]]] -> [Char] -> [Section]
 parseSectionsInner [] _ = []
-parseSectionsInner instructions kind = do
-    let broken = break (\s -> command s == "section") instructions
+parseSectionsInner lines kind = do
+    let broken = break (\s -> head s == "section") lines
 
-    let ret = Section kind (fst broken)
+    let instructions = parseInstructions (fst broken)
 
-    let nextSection = text (head (operands (head (snd broken))))
+    let ret = Section kind instructions
+
+    let nextSection = drop 1 (head (head (snd broken)))
 
     let anyLeft = not (null (snd broken))
     let remaining = case anyLeft of False -> []
@@ -210,8 +214,8 @@ parseSectionsInner instructions kind = do
 
     [ret] ++ parseSectionsInner remaining nextSection
 
-parseSections :: [Instruction] -> [Section]
-parseSections instructions = parseSectionsInner instructions "base"
+parseSections :: [[[Char]]] -> [Section]
+parseSections lines = parseSectionsInner lines "base"
 
 main :: IO ()
 main = do
@@ -223,17 +227,12 @@ main = do
     let emptied = removeEmptyLines merged
     putStr (intercalate "\n" (map showLine emptied))
 
-    let (labels, instructions) = parseInstructions emptied
-    putStr (intercalate "\n" (map showInstruction instructions))
-    putStr (showLabels labels)
-
-    let sections = parseSections instructions
-    putStr (showSections sections)    
+    let sections = parseSections emptied
+    putStr (showSections sections)
 
     putStr "\n"
 
     --let relocations = getRelocations sections labels
-
 
 showSection :: Section -> [Char]
 showSection s = "[" ++ (kind s) ++ "]\n" ++
@@ -245,21 +244,13 @@ showSections s = "--SECTIONS:-----------------------\n\n" ++
 
 showInstruction :: Instruction -> [Char]
 showInstruction i =
-    --(T.unpack (T.intercalate (T.pack ",") (labels i))) ++
-    --(if (null (labels i)) then "" else ":\n") ++
-    (command i) ++ "\n  " ++
+    (intercalate "," (labels i)) ++
+    (if (null (labels i)) then "" else ":\n") ++
+    "  " ++ (show (instructionOffset i)) ++ ": " ++ (command i) ++ "\n  " ++
     (intercalate "\n  " (map showOperand (operands i))) ++ "\n"
 
 showOperand :: Operand -> [Char]
-showOperand o = text o
-
-showLabel :: Label -> [Char]
-showLabel label = (name label) ++ " -> " ++
-                  (showInstruction (instruction label))
-
-showLabels :: [Label] -> [Char]
-showLabels labels = "--LABELS:-----------------------\n\n" ++
-                    (intercalate "\n" (map showLabel labels))
+showOperand o = show (operandOffset o) ++ ": " ++ text o
 
 --showRelocation :: Relocation -> [Char]
 --showRelocation relocation =
