@@ -321,7 +321,23 @@ renderSectionHeader sh =
     renderInt32 (sh_info sh) ++
     renderInt64 (sh_addralign sh) ++
     renderInt64 (sh_entsize sh)
-    
+
+getStrTabIndex :: [[Char]] -> [Char] -> Int
+getStrTabIndex strtab find = length (fst (break (== find) strtab))
+
+getStrTabOffsetInner :: [[Char]] -> [Char] -> Int32 -> Int32
+getStrTabOffsetInner strtab find offset = do
+    let current = head strtab
+
+    let inner = getStrTabOffsetInner (tail strtab) find
+                (offset + (fromIntegral (length current) :: Int32) + 1)
+
+    case current == find of True  -> offset
+                            False -> inner
+
+getStrTabOffset :: [[Char]] -> [Char] -> Int32
+getStrTabOffset strtab find = getStrTabOffsetInner strtab find 0
+
 main :: IO ()
 main = do
     contents <- getContents
@@ -417,7 +433,7 @@ main = do
     let renderedText = renderSection (sections !! 1) -- TODO
 
     let shNull = renderSectionHeader (SectionHeader {
-        sh_name = 0,
+        sh_name = (getStrTabOffset shstrtab ""),
         sh_type = SHT_NULL,
         sh_flags = SHF_NONE,
         sh_addr = 0,
@@ -430,7 +446,7 @@ main = do
     })
 
     let shText = renderSectionHeader (SectionHeader {
-        sh_name = 1,            -- TODO: calculate
+        sh_name = (getStrTabOffset shstrtab ".text"),
         sh_type = SHT_PROGBITS,
         sh_flags = SHF_ALLOC_WRITE,
         sh_addr = 0,
@@ -443,7 +459,7 @@ main = do
     })
 
     let shShStrTab = renderSectionHeader (SectionHeader {
-        sh_name = 0x07,            -- TODO: calculate
+        sh_name = (getStrTabOffset shstrtab ".shstrtab"),
         sh_type = SHT_STRTAB,
         sh_flags = SHF_NONE,
         sh_addr = 0,
@@ -456,7 +472,7 @@ main = do
     })
 
     let shSymTab = renderSectionHeader (SectionHeader {
-        sh_name = 0x11,            -- TODO: calculate
+        sh_name = (getStrTabOffset shstrtab ".symtab"),
         sh_type = SHT_SYMTAB,
         sh_flags = SHF_NONE,
         sh_addr = 0,
@@ -469,7 +485,7 @@ main = do
     })
 
     let shStrTab = renderSectionHeader (SectionHeader {
-        sh_name = 0x19,            -- TODO: calculate
+        sh_name = (getStrTabOffset shstrtab ".strtab"),
         sh_type = SHT_STRTAB,
         sh_flags = SHF_NONE,
         sh_addr = 0,
