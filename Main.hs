@@ -1,6 +1,9 @@
 module Main where
 
+import Data.Int
 import Data.List
+import Data.Char
+import Data.Binary
 import Data.Binary.Put
 import qualified Data.ByteString.Lazy as BL
 --import qualified Data.ByteString as B
@@ -206,7 +209,7 @@ parseSectionsInner lines kind = do
 
     let ret = Section kind instructions
 
-    let nextSection = drop 1 (head (head (snd broken)))
+    let nextSection = drop 1 ((head (snd broken)) !! 1)
 
     let anyLeft = not (null (snd broken))
     let remaining = case anyLeft of False -> []
@@ -217,6 +220,108 @@ parseSectionsInner lines kind = do
 parseSections :: [[[Char]]] -> [Section]
 parseSections lines = parseSectionsInner lines "base"
 
+renderInstruction :: Instruction -> [Int]
+renderInstruction inst = do
+    case (command inst) of "syscall" -> (renderSysCall inst)
+                           "mov"     -> (renderMov inst)
+
+renderSysCall :: Instruction -> [Int]
+renderSysCall inst = [0x0f, 0x05]
+
+stringToInt :: [Char] -> Maybe Int
+stringToInt input = do
+    let parsed = reads input :: [(Int, [Char])]
+    case parsed of
+        [] -> Nothing
+        x  -> case (length (snd (head x))) of
+            0 -> Just (fst (head x))
+            _ -> Nothing
+
+renderMov :: Instruction -> [Int]
+renderMov inst = do
+    let prefix = case (text (head (operands inst))) of "rax" -> [0x48, 0xb8]
+                                                       "rbx" -> [0x48, 0xbb]
+                                                       "rcx" -> [0x48, 0xb9]
+                                                       "rdx" -> [0x48, 0xba]
+                                                       "rdi" -> [0x48, 0xbf]
+                                                       "rsi" -> [0x48, 0xbe]
+                                                       "rbp" -> [0x48, 0xbd]
+                                                       "rsp" -> [0x48, 0xbc]
+                                                       "r8"  -> [0x49, 0xb8]
+                                                       "r9"  -> [0x49, 0xb9]
+                                                       "r10" -> [0x49, 0xba]
+                                                       "r11" -> [0x49, 0xbb]
+                                                       "r12" -> [0x49, 0xbc]
+                                                       "r13" -> [0x49, 0xbd]
+                                                       "r14" -> [0x49, 0xbe]
+                                                       "r15" -> [0x49, 0xbf]
+
+    let source = (operands inst) !! 1
+    -- TODO: unhack. Check if there's a relocation instead.
+    let parsed = case (stringToInt (text source)) of Nothing -> 0
+                                                     Just i  -> i
+    prefix ++ intToBytes parsed
+
+toByteString :: [Int] -> BL.ByteString
+toByteString input = BL.pack (map fromIntegral input)
+
+renderSection :: Section -> [Int]
+renderSection section = do
+    concat (map renderInstruction (instructions section))
+
+renderStrTab :: [[Char]] -> [Int]
+renderStrTab strings = concat [(map ord s) ++ [0] | s <- strings]
+
+-- TODO: generic
+intToBytes :: Int -> [Int]
+intToBytes src = reverse [fromIntegral o :: Int | o <- BL.unpack (encode src)]
+
+renderInt32 :: Int32 -> [Int]
+renderInt32 src = reverse [fromIntegral o :: Int | o <- BL.unpack (encode src)]
+
+renderInt64 :: Int64 -> [Int]
+renderInt64 src = reverse [fromIntegral o :: Int | o <- BL.unpack (encode src)]
+
+data SectionHeaderType = SHT_NULL | SHT_PROGBITS | SHT_SYMTAB | SHT_STRTAB
+
+sectionHeaderTypeToInt32 :: SectionHeaderType -> Int32
+sectionHeaderTypeToInt32 sht = case sht of SHT_NULL     -> 0
+                                           SHT_PROGBITS -> 1
+                                           SHT_SYMTAB   -> 2
+                                           SHT_STRTAB   -> 3
+
+data SectionHeaderFlags = SHF_NONE | SHF_ALLOC_WRITE -- TODO
+
+sectionHeaderFlagsToInt64 :: SectionHeaderFlags -> Int64
+sectionHeaderFlagsToInt64 shf = case shf of SHF_NONE        -> 0
+                                            SHF_ALLOC_WRITE -> 6
+
+data SectionHeader = SectionHeader {
+    sh_name      :: Int32,
+    sh_type      :: SectionHeaderType,
+    sh_flags     :: SectionHeaderFlags,
+    sh_addr      :: Int64,
+    sh_offset    :: Int64,
+    sh_size      :: Int64,
+    sh_link      :: Int32,
+    sh_info      :: Int32,
+    sh_addralign :: Int64,
+    sh_entsize   :: Int64
+}
+
+renderSectionHeader :: SectionHeader -> [Int]
+renderSectionHeader sh =
+    renderInt32 (sh_name sh) ++
+    renderInt32 (sectionHeaderTypeToInt32 (sh_type sh)) ++
+    renderInt64 (sectionHeaderFlagsToInt64 (sh_flags sh)) ++
+    renderInt64 (sh_addr sh) ++
+    renderInt64 (sh_offset sh) ++
+    renderInt64 (sh_size sh) ++
+    renderInt32 (sh_link sh) ++
+    renderInt32 (sh_info sh) ++
+    renderInt64 (sh_addralign sh) ++
+    renderInt64 (sh_entsize sh)
+    
 main :: IO ()
 main = do
     contents <- getContents
@@ -225,14 +330,176 @@ main = do
     let processed = map processLine sourceLines
     let merged = mergeLabels processed
     let emptied = removeEmptyLines merged
-    putStr (intercalate "\n" (map showLine emptied))
+    --putStr (intercalate "\n" (map showLine emptied))
 
     let sections = parseSections emptied
-    putStr (showSections sections)
-
-    putStr "\n"
+    --putStr (showSections sections)
 
     --let relocations = getRelocations sections labels
+    
+    let header = [0x7f, 0x45, 0x4c, 0x46, -- magic
+                  0x02,                   -- 64-bit
+                  0x01,                   -- little endian
+                  0x01,                   -- ELF version
+                  0x00,                   -- System V ABI
+                  0x00,                   -- ABI version
+                  0x00, 0x00, 0x00, 0x00,
+                  0x00, 0x00, 0x00,       -- padding
+                  0x01, 0x00,             -- relocatable
+                  0x3e, 0x00,             -- e_machine
+                  0x01, 0x00, 0x00, 0x00, -- e_version
+                  0x00, 0x00, 0x00, 0x00, -- entry point?
+                  0x00, 0x00, 0x00, 0x00,
+                  0x00, 0x00, 0x00, 0x00, -- e_phoff
+                  0x00, 0x00, 0x00, 0x00,
+                  0x40, 0x00, 0x00, 0x00, -- e_shoff
+                  0x00, 0x00, 0x00, 0x00,
+                  0x00, 0x00, 0x00, 0x00, -- e_flags
+                  0x40, 0x00,             -- e_ehsize
+                  0x00, 0x00,             -- e_phentsize?
+                  0x00, 0x00,             -- e_phnum
+                  0x40, 0x00,             -- e_shentsize
+                  0x05, 0x00,             -- e_shnum
+                  0x02, 0x00] :: [Int]    -- e_shstrndx
+
+    let strtab = ["",
+                  "test2.asm",
+                  "_start"]
+
+    let shstrtab = ["",
+                    ".text",
+                    ".shstrtab",
+                    ".symtab",
+                    ".strtab"]
+
+    let renderedStrTab = renderStrTab(strtab)
+    let renderedShStrTab = renderStrTab(shstrtab)
+
+    let renderedSymTab = [0x00, 0x00, 0x00, 0x00,
+                          0x00,
+                          0x00,
+                          0x00, 0x00,
+                          0x00, 0x00, 0x00, 0x00,
+                          0x00, 0x00, 0x00, 0x00,
+                          0x00, 0x00, 0x00, 0x00,
+                          0x00, 0x00, 0x00, 0x00,
+
+                          -- test2.asm
+                          0x01, 0x00, 0x00, 0x00,   -- st_name test2.asm
+                          0x04,                     -- st_info STT_FILE
+                          0x00,                     -- st_other STV_DEFAULT
+                          0xf1, 0xff,               -- st_shndx ???
+                          0x00, 0x00, 0x00, 0x00,   -- st_value
+                          0x00, 0x00, 0x00, 0x00,
+                          0x00, 0x00, 0x00, 0x00,   -- st_size
+                          0x00, 0x00, 0x00, 0x00,
+
+                          -- section
+                          0x00, 0x00, 0x00, 0x00,
+                          0x03,                     -- st_info STT_SECTION
+                          0x00,
+                          0x01, 0x00,               -- st_shndx ???
+                          0x00, 0x00, 0x00, 0x00,
+                          0x00, 0x00, 0x00, 0x00,
+                          0x00, 0x00, 0x00, 0x00,
+                          0x00, 0x00, 0x00, 0x00,
+
+                          -- _start
+                          0x0b, 0x00, 0x00, 0x00,   -- st_name test2.asm
+                          0x00,
+                          0x00,
+                          0x01, 0x00,               -- st_shndx ???
+                          0x00, 0x00, 0x00, 0x00,
+                          0x00, 0x00, 0x00, 0x00,
+                          0x00, 0x00, 0x00, 0x00,
+                          0x00, 0x00, 0x00, 0x00]
+
+    let renderedText = renderSection (sections !! 1) -- TODO
+
+    let shNull = renderSectionHeader (SectionHeader {
+        sh_name = 0,
+        sh_type = SHT_NULL,
+        sh_flags = SHF_NONE,
+        sh_addr = 0,
+        sh_offset = 0,
+        sh_size = 0,
+        sh_link = 0,
+        sh_info = 0,
+        sh_addralign = 0,
+        sh_entsize = 0
+    })
+
+    let shText = renderSectionHeader (SectionHeader {
+        sh_name = 1,            -- TODO: calculate
+        sh_type = SHT_PROGBITS,
+        sh_flags = SHF_ALLOC_WRITE,
+        sh_addr = 0,
+        sh_offset = 0x180,      -- TODO: calculate
+        sh_size = fromIntegral (length renderedText) :: Int64,
+        sh_link = 0,
+        sh_info = 0,
+        sh_addralign = 0x10,
+        sh_entsize = 0
+    })
+
+    let shShStrTab = renderSectionHeader (SectionHeader {
+        sh_name = 0x07,            -- TODO: calculate
+        sh_type = SHT_STRTAB,
+        sh_flags = SHF_NONE,
+        sh_addr = 0,
+        sh_offset = 0x1a0,         -- TODO: calculate
+        sh_size = fromIntegral (length renderedShStrTab) :: Int64,
+        sh_link = 0,
+        sh_info = 0,
+        sh_addralign = 0x1,
+        sh_entsize = 0
+    })
+
+    let shSymTab = renderSectionHeader (SectionHeader {
+        sh_name = 0x11,            -- TODO: calculate
+        sh_type = SHT_SYMTAB,
+        sh_flags = SHF_NONE,
+        sh_addr = 0,
+        sh_offset = 0x1d0,         -- TODO: calculate
+        sh_size = fromIntegral (length renderedSymTab) :: Int64,
+        sh_link = 0x4,
+        sh_info = 0x4,
+        sh_addralign = 0x4,
+        sh_entsize = 0x18
+    })
+
+    let shStrTab = renderSectionHeader (SectionHeader {
+        sh_name = 0x19,            -- TODO: calculate
+        sh_type = SHT_STRTAB,
+        sh_flags = SHF_NONE,
+        sh_addr = 0,
+        sh_offset = 0x230,         -- TODO: calculate
+        sh_size = fromIntegral (length renderedStrTab) :: Int64,
+        sh_link = 0,
+        sh_info = 0,
+        sh_addralign = 0x1,
+        sh_entsize = 0
+    })
+
+    let renderedSectionHeaders = concat [shNull,
+                                         shText,
+                                         shShStrTab,
+                                         shSymTab,
+                                         shStrTab]
+
+    let renderedHeader = header
+
+    let rendered = renderedHeader ++
+                   renderedSectionHeaders ++
+                   renderedText ++
+                   replicate 10 0x00 ++          -- TODO
+                   renderedShStrTab ++
+                   replicate 15 0x00 ++          -- TODO
+                   renderedSymTab ++
+                   renderedStrTab ++
+                   replicate 14 0x00             -- TODO
+
+    BL.putStr (toByteString rendered)
 
 showSection :: Section -> [Char]
 showSection s = "[" ++ (kind s) ++ "]\n" ++

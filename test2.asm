@@ -1,1 +1,9 @@
-    hello    "gre;et\"\"i[]ngs" there "you" yes   [  hello]  ;  "yessir"  
+; hi
+%define asdf 123
+
+section .text
+
+_start:
+    mov rax, 60
+    mov rdi, 77
+    syscall
