@@ -284,6 +284,7 @@ sectionHeaderFlagsToInt64 shf = case shf of SHF_NONE        -> 0
 data SectionHeader = SectionHeader {
     sectionName    :: [Char],
     sectionData    :: [Int],
+    sectionPadding :: Int,
     sh_name        :: Int32,
     sh_type        :: SectionHeaderType,
     sh_flags       :: SectionHeaderFlags,
@@ -329,13 +330,18 @@ calculateSectionHeaderOffsets :: [SectionHeader] -> Int -> [SectionHeader]
 calculateSectionHeaderOffsets [] _ = []
 calculateSectionHeaderOffsets headers offset = do
     let current = head headers
-    let ret = current { sh_offset = fromIntegral offset :: Int64 }
-    let nextOffset = align (offset + (fromIntegral (sh_size current) :: Int))
-                     16
+    let endOfData = offset + (fromIntegral (sh_size current) :: Int)
+    let nextOffset = align endOfData 16
+
+    let ret = current {
+        sectionPadding = nextOffset - endOfData,
+        sh_offset = fromIntegral offset :: Int64
+    }
+
     [ret] ++ calculateSectionHeaderOffsets (tail headers) nextOffset
 
 getSectionHeaderNameOffsets :: [SectionHeader] -> [[Char]] -> [SectionHeader]
-getSectionHeaderNameOffsets headers shstrtab
+getSectionHeaderNameOffsets headers shstrtab =
     [sh { sh_name = getStrTabOffset shstrtab (sectionName sh) } |
      sh <- headers]
 
@@ -356,6 +362,7 @@ createTextSectionHeader section = do
     SectionHeader {
         sectionName = "." ++ kind section,
         sectionData = text,
+        sectionPadding = 0,
         sh_name = 0,
         sh_type = SHT_PROGBITS,
         sh_flags = SHF_ALLOC_WRITE,
@@ -372,6 +379,16 @@ createSectionHeader :: Section -> [SectionHeader]
 createSectionHeader section =
     case (kind section) of "text" -> [createTextSectionHeader section]
                            "base" -> []
+
+renderSectionData :: SectionHeader -> [Int]
+renderSectionData header =
+    case (length (sectionData header)) of
+        0 -> []
+        _ -> (sectionData header) ++ replicate (sectionPadding header) 0x00
+
+renderSectionsData :: [SectionHeader] -> [Int]
+renderSectionsData [] = []
+renderSectionsData headers = concat (map renderSectionData headers)
 
 main :: IO ()
 main = do
@@ -402,7 +419,6 @@ main = do
 
     let renderedStrTab = renderStrTab(strtab)
     let renderedShStrTab = renderStrTab(shstrtab)
-    let renderedText = renderSection (sections !! 1) -- TODO
 
     let renderedSymTab = [0x00, 0x00, 0x00, 0x00,
                           0x00,
@@ -446,6 +462,7 @@ main = do
     let headers = concat (map createSectionHeader sections) ++ [SectionHeader {
         sectionName = ".shstrtab",
         sectionData = renderedShStrTab,
+        sectionPadding = 0,
         sh_name = 0,
         sh_type = SHT_STRTAB,
         sh_flags = SHF_NONE,
@@ -459,6 +476,7 @@ main = do
     }, SectionHeader {
         sectionName = ".symtab",
         sectionData = renderedSymTab,
+        sectionPadding = 0,
         sh_name = 0,
         sh_type = SHT_SYMTAB,
         sh_flags = SHF_NONE,
@@ -472,6 +490,7 @@ main = do
     }, SectionHeader {
         sectionName = ".strtab",
         sectionData = renderedStrTab,
+        sectionPadding = 0,
         sh_name = 0,
         sh_type = SHT_STRTAB,
         sh_flags = SHF_NONE,
@@ -499,6 +518,7 @@ main = do
     let headers3 = [SectionHeader {
         sectionName = "",
         sectionData = [],
+        sectionPadding = 0,
         sh_name = 0,
         sh_type = SHT_NULL,
         sh_flags = SHF_NONE,
@@ -544,13 +564,7 @@ main = do
 
     let rendered = header ++
                    (concat renderedSectionHeaders) ++
-                   renderedText ++
-                   replicate 10 0x00 ++          -- TODO
-                   renderedShStrTab ++
-                   replicate 15 0x00 ++          -- TODO
-                   renderedSymTab ++
-                   renderedStrTab ++
-                   replicate 14 0x00             -- TODO
+                   renderSectionsData(headers4)
 
     BL.putStr (toByteString rendered)
 
