@@ -283,6 +283,7 @@ sectionHeaderFlagsToInt64 shf = case shf of SHF_NONE        -> 0
 
 data SectionHeader = SectionHeader {
     sectionName    :: [Char],
+    sectionData    :: [Int],
     sh_name        :: Int32,
     sh_type        :: SectionHeaderType,
     sh_flags       :: SectionHeaderFlags,
@@ -334,13 +335,9 @@ calculateSectionHeaderOffsets headers offset = do
     [ret] ++ calculateSectionHeaderOffsets (tail headers) nextOffset
 
 getSectionHeaderNameOffsets :: [SectionHeader] -> [[Char]] -> [SectionHeader]
-getSectionHeaderNameOffsets [] _ = []
-getSectionHeaderNameOffsets headers shstrtab = do
-    let current = head headers
-    let ret = current {
-        sh_name = getStrTabOffset shstrtab (sectionName current)
-    }
-    [ret] ++ getSectionHeaderNameOffsets (tail headers) shstrtab
+getSectionHeaderNameOffsets headers shstrtab
+    [sh { sh_name = getStrTabOffset shstrtab (sectionName sh) } |
+     sh <- headers]
 
 -- Align value to the nearest alignment by rounding up
 align :: Int -> Int -> Int
@@ -352,6 +349,29 @@ align value alignment =
 getShStrTabIndex :: [SectionHeader] -> Int
 getShStrTabIndex headers = do
     length (fst (break (\s -> ((sectionName) s == ".shstrtab")) headers))
+
+createTextSectionHeader :: Section -> SectionHeader
+createTextSectionHeader section = do
+    let text = renderSection section
+    SectionHeader {
+        sectionName = "." ++ kind section,
+        sectionData = text,
+        sh_name = 0,
+        sh_type = SHT_PROGBITS,
+        sh_flags = SHF_ALLOC_WRITE,
+        sh_addr = 0,
+        sh_offset = 0,
+        sh_size = fromIntegral (length text) :: Int64,
+        sh_link = 0,
+        sh_info = 0,
+        sh_addralign = 0x10,
+        sh_entsize = 0
+    }
+
+createSectionHeader :: Section -> [SectionHeader]
+createSectionHeader section =
+    case (kind section) of "text" -> [createTextSectionHeader section]
+                           "base" -> []
 
 main :: IO ()
 main = do
@@ -423,25 +443,14 @@ main = do
                           0x00, 0x00, 0x00, 0x00,
                           0x00, 0x00, 0x00, 0x00]
 
-    let headers = [SectionHeader {
-        sectionName = ".text",
-        sh_name = 0,
-        sh_type = SHT_PROGBITS,
-        sh_flags = SHF_ALLOC_WRITE,
-        sh_addr = 0,
-        sh_offset = 0x180,      -- TODO: calculate
-        sh_size = fromIntegral (length renderedText) :: Int64,
-        sh_link = 0,
-        sh_info = 0,
-        sh_addralign = 0x10,
-        sh_entsize = 0
-    }, SectionHeader {
+    let headers = concat (map createSectionHeader sections) ++ [SectionHeader {
         sectionName = ".shstrtab",
+        sectionData = renderedShStrTab,
         sh_name = 0,
         sh_type = SHT_STRTAB,
         sh_flags = SHF_NONE,
         sh_addr = 0,
-        sh_offset = 0x1a0,         -- TODO: calculate
+        sh_offset = 0,
         sh_size = fromIntegral (length renderedShStrTab) :: Int64,
         sh_link = 0,
         sh_info = 0,
@@ -449,11 +458,12 @@ main = do
         sh_entsize = 0
     }, SectionHeader {
         sectionName = ".symtab",
+        sectionData = renderedSymTab,
         sh_name = 0,
         sh_type = SHT_SYMTAB,
         sh_flags = SHF_NONE,
         sh_addr = 0,
-        sh_offset = 0x1d0,         -- TODO: calculate
+        sh_offset = 0,
         sh_size = fromIntegral (length renderedSymTab) :: Int64,
         sh_link = 0x4,
         sh_info = 0x4,
@@ -461,11 +471,12 @@ main = do
         sh_entsize = 0x18
     }, SectionHeader {
         sectionName = ".strtab",
+        sectionData = renderedStrTab,
         sh_name = 0,
         sh_type = SHT_STRTAB,
         sh_flags = SHF_NONE,
         sh_addr = 0,
-        sh_offset = 0x230,         -- TODO: calculate
+        sh_offset = 0,
         sh_size = fromIntegral (length renderedStrTab) :: Int64,
         sh_link = 0,
         sh_info = 0,
@@ -487,6 +498,7 @@ main = do
     -- Prepend null section header
     let headers3 = [SectionHeader {
         sectionName = "",
+        sectionData = [],
         sh_name = 0,
         sh_type = SHT_NULL,
         sh_flags = SHF_NONE,
