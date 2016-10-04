@@ -27,24 +27,6 @@ data Operand = Operand {
     operandSize :: Int
 }
 
---data Relocation = Relocation {
---    replace :: Operand,
---    target :: Label
---}
-
---getRelocation :: [Label] -> Operand -> [Relocation]
---getRelocation labels operand = do
---    let label = find (\l -> (name l) == (text operand)) labels
---    case label of
---        Just l -> [Relocation operand l]
---        Nothing -> []
---
---getRelocations :: [Section] -> [Label] -> [Relocation]
---getRelocations sections labels = do
---    let allInstructions = concat [instructions s | s <- sections]
---    let allOperands = concat [operands i | i <- allInstructions]
---    concat (map (getRelocation labels) allOperands)
-
 data QuoteChar = QuoteChar {
     char :: Char,
     quoted :: Bool,
@@ -276,6 +258,9 @@ renderStrTab strings = concat [(map ord s) ++ [0] | s <- strings]
 intToBytes :: Int -> [Int]
 intToBytes src = reverse [fromIntegral o :: Int | o <- BL.unpack (encode src)]
 
+renderInt16 :: Int16 -> [Int]
+renderInt16 src = reverse [fromIntegral o :: Int | o <- BL.unpack (encode src)]
+
 renderInt32 :: Int32 -> [Int]
 renderInt32 src = reverse [fromIntegral o :: Int | o <- BL.unpack (encode src)]
 
@@ -297,16 +282,17 @@ sectionHeaderFlagsToInt64 shf = case shf of SHF_NONE        -> 0
                                             SHF_ALLOC_WRITE -> 6
 
 data SectionHeader = SectionHeader {
-    sh_name      :: Int32,
-    sh_type      :: SectionHeaderType,
-    sh_flags     :: SectionHeaderFlags,
-    sh_addr      :: Int64,
-    sh_offset    :: Int64,
-    sh_size      :: Int64,
-    sh_link      :: Int32,
-    sh_info      :: Int32,
-    sh_addralign :: Int64,
-    sh_entsize   :: Int64
+    sectionName    :: [Char],
+    sh_name        :: Int32,
+    sh_type        :: SectionHeaderType,
+    sh_flags       :: SectionHeaderFlags,
+    sh_addr        :: Int64,
+    sh_offset      :: Int64,
+    sh_size        :: Int64,
+    sh_link        :: Int32,
+    sh_info        :: Int32,
+    sh_addralign   :: Int64,
+    sh_entsize     :: Int64
 }
 
 renderSectionHeader :: SectionHeader -> [Int]
@@ -338,6 +324,35 @@ getStrTabOffsetInner strtab find offset = do
 getStrTabOffset :: [[Char]] -> [Char] -> Int32
 getStrTabOffset strtab find = getStrTabOffsetInner strtab find 0
 
+calculateSectionHeaderOffsets :: [SectionHeader] -> Int -> [SectionHeader]
+calculateSectionHeaderOffsets [] _ = []
+calculateSectionHeaderOffsets headers offset = do
+    let current = head headers
+    let ret = current { sh_offset = fromIntegral offset :: Int64 }
+    let nextOffset = align (offset + (fromIntegral (sh_size current) :: Int))
+                     16
+    [ret] ++ calculateSectionHeaderOffsets (tail headers) nextOffset
+
+getSectionHeaderNameOffsets :: [SectionHeader] -> [[Char]] -> [SectionHeader]
+getSectionHeaderNameOffsets [] _ = []
+getSectionHeaderNameOffsets headers shstrtab = do
+    let current = head headers
+    let ret = current {
+        sh_name = getStrTabOffset shstrtab (sectionName current)
+    }
+    [ret] ++ getSectionHeaderNameOffsets (tail headers) shstrtab
+
+-- Align value to the nearest alignment by rounding up
+align :: Int -> Int -> Int
+align value alignment =
+    case (mod value alignment) of 0 -> value
+                                  r -> value + (alignment - r)
+
+-- Find the index of the first shstrtab section header
+getShStrTabIndex :: [SectionHeader] -> Int
+getShStrTabIndex headers = do
+    length (fst (break (\s -> ((sectionName) s == ".shstrtab")) headers))
+
 main :: IO ()
 main = do
     contents <- getContents
@@ -346,38 +361,15 @@ main = do
     let processed = map processLine sourceLines
     let merged = mergeLabels processed
     let emptied = removeEmptyLines merged
-    --putStr (intercalate "\n" (map showLine emptied))
-
     let sections = parseSections emptied
     --putStr (showSections sections)
 
-    --let relocations = getRelocations sections labels
-    
-    let header = [0x7f, 0x45, 0x4c, 0x46, -- magic
-                  0x02,                   -- 64-bit
-                  0x01,                   -- little endian
-                  0x01,                   -- ELF version
-                  0x00,                   -- System V ABI
-                  0x00,                   -- ABI version
-                  0x00, 0x00, 0x00, 0x00,
-                  0x00, 0x00, 0x00,       -- padding
-                  0x01, 0x00,             -- relocatable
-                  0x3e, 0x00,             -- e_machine
-                  0x01, 0x00, 0x00, 0x00, -- e_version
-                  0x00, 0x00, 0x00, 0x00, -- entry point?
-                  0x00, 0x00, 0x00, 0x00,
-                  0x00, 0x00, 0x00, 0x00, -- e_phoff
-                  0x00, 0x00, 0x00, 0x00,
-                  0x40, 0x00, 0x00, 0x00, -- e_shoff
-                  0x00, 0x00, 0x00, 0x00,
-                  0x00, 0x00, 0x00, 0x00, -- e_flags
-                  0x40, 0x00,             -- e_ehsize
-                  0x00, 0x00,             -- e_phentsize?
-                  0x00, 0x00,             -- e_phnum
-                  0x40, 0x00,             -- e_shentsize
-                  0x05, 0x00,             -- e_shnum
-                  0x02, 0x00] :: [Int]    -- e_shstrndx
+    --let relocations = getRelocations sections labels   
 
+    let e_ehsize = 64 :: Int16
+    let e_shentsize = 64 :: Int16
+    let e_shoff = 64 :: Int64
+ 
     let strtab = ["",
                   "test2.asm",
                   "_start"]
@@ -390,6 +382,7 @@ main = do
 
     let renderedStrTab = renderStrTab(strtab)
     let renderedShStrTab = renderStrTab(shstrtab)
+    let renderedText = renderSection (sections !! 1) -- TODO
 
     let renderedSymTab = [0x00, 0x00, 0x00, 0x00,
                           0x00,
@@ -430,23 +423,9 @@ main = do
                           0x00, 0x00, 0x00, 0x00,
                           0x00, 0x00, 0x00, 0x00]
 
-    let renderedText = renderSection (sections !! 1) -- TODO
-
-    let shNull = renderSectionHeader (SectionHeader {
-        sh_name = (getStrTabOffset shstrtab ""),
-        sh_type = SHT_NULL,
-        sh_flags = SHF_NONE,
-        sh_addr = 0,
-        sh_offset = 0,
-        sh_size = 0,
-        sh_link = 0,
-        sh_info = 0,
-        sh_addralign = 0,
-        sh_entsize = 0
-    })
-
-    let shText = renderSectionHeader (SectionHeader {
-        sh_name = (getStrTabOffset shstrtab ".text"),
+    let headers = [SectionHeader {
+        sectionName = ".text",
+        sh_name = 0,
         sh_type = SHT_PROGBITS,
         sh_flags = SHF_ALLOC_WRITE,
         sh_addr = 0,
@@ -456,10 +435,9 @@ main = do
         sh_info = 0,
         sh_addralign = 0x10,
         sh_entsize = 0
-    })
-
-    let shShStrTab = renderSectionHeader (SectionHeader {
-        sh_name = (getStrTabOffset shstrtab ".shstrtab"),
+    }, SectionHeader {
+        sectionName = ".shstrtab",
+        sh_name = 0,
         sh_type = SHT_STRTAB,
         sh_flags = SHF_NONE,
         sh_addr = 0,
@@ -469,10 +447,9 @@ main = do
         sh_info = 0,
         sh_addralign = 0x1,
         sh_entsize = 0
-    })
-
-    let shSymTab = renderSectionHeader (SectionHeader {
-        sh_name = (getStrTabOffset shstrtab ".symtab"),
+    }, SectionHeader {
+        sectionName = ".symtab",
+        sh_name = 0,
         sh_type = SHT_SYMTAB,
         sh_flags = SHF_NONE,
         sh_addr = 0,
@@ -482,10 +459,9 @@ main = do
         sh_info = 0x4,
         sh_addralign = 0x4,
         sh_entsize = 0x18
-    })
-
-    let shStrTab = renderSectionHeader (SectionHeader {
-        sh_name = (getStrTabOffset shstrtab ".strtab"),
+    }, SectionHeader {
+        sectionName = ".strtab",
+        sh_name = 0,
         sh_type = SHT_STRTAB,
         sh_flags = SHF_NONE,
         sh_addr = 0,
@@ -495,18 +471,67 @@ main = do
         sh_info = 0,
         sh_addralign = 0x1,
         sh_entsize = 0
-    })
+    }]
 
-    let renderedSectionHeaders = concat [shNull,
-                                         shText,
-                                         shShStrTab,
-                                         shSymTab,
-                                         shStrTab]
+    let e_ehsize = 64 :: Int16
+    let e_shentsize = 64 :: Int16
+    let e_shoff = 64 :: Int64
 
-    let renderedHeader = header
+    -- Calculate first section offset
+    -- TODO: there must be a way to avoid 3 casts here?
+    let shLen = (succ (length headers)) * (fromIntegral e_shentsize :: Int)
+    let firstOffset = (fromIntegral e_ehsize :: Int) + shLen
+    let headers2 = calculateSectionHeaderOffsets headers
+                   (fromIntegral firstOffset :: Int)
 
-    let rendered = renderedHeader ++
-                   renderedSectionHeaders ++
+    -- Prepend null section header
+    let headers3 = [SectionHeader {
+        sectionName = "",
+        sh_name = 0,
+        sh_type = SHT_NULL,
+        sh_flags = SHF_NONE,
+        sh_addr = 0,
+        sh_offset = 0,
+        sh_size = 0,
+        sh_link = 0,
+        sh_info = 0,
+        sh_addralign = 0,
+        sh_entsize = 0
+    }] ++ headers2
+
+    let headers4 = getSectionHeaderNameOffsets headers3 shstrtab
+
+    let e_shnum = fromIntegral (length headers3) :: Int16
+    let e_shstrndx = fromIntegral (getShStrTabIndex headers4) :: Int16
+
+    let header = [0x7f, 0x45, 0x4c, 0x46,          -- magic
+                  0x02,                            -- 64-bit
+                  0x01,                            -- little endian
+                  0x01,                            -- ELF version
+                  0x00,                            -- System V ABI
+                  0x00,                            -- ABI version
+                  0x00, 0x00, 0x00, 0x00,
+                  0x00, 0x00, 0x00,                -- padding
+                  0x01, 0x00,                      -- relocatable
+                  0x3e, 0x00,                      -- e_machine
+                  0x01, 0x00, 0x00, 0x00,          -- e_version
+                  0x00, 0x00, 0x00, 0x00,          -- entry point?
+                  0x00, 0x00, 0x00, 0x00,
+                  0x00, 0x00, 0x00, 0x00,          -- e_phoff
+                  0x00, 0x00, 0x00, 0x00] ++
+                  renderInt64(e_shoff) ++          -- e_shoff
+                 [0x00, 0x00, 0x00, 0x00] ++       -- e_flags
+                  renderInt16(e_ehsize) ++         -- e_ehsize
+                 [0x00, 0x00,                      -- e_phentsize?
+                  0x00, 0x00] ++                   -- e_phnum
+                  renderInt16(e_shentsize) ++      -- e_shentsize
+                  renderInt16(e_shnum) ++          -- e_shnum
+                  renderInt16(e_shstrndx) :: [Int] -- e_shstrndx
+
+    let renderedSectionHeaders = map renderSectionHeader headers4
+
+    let rendered = header ++
+                   (concat renderedSectionHeaders) ++
                    renderedText ++
                    replicate 10 0x00 ++          -- TODO
                    renderedShStrTab ++
@@ -534,6 +559,24 @@ showInstruction i =
 
 showOperand :: Operand -> [Char]
 showOperand o = show (operandOffset o) ++ ": " ++ text o
+
+--data Relocation = Relocation {
+--    replace :: Operand,
+--    target :: Label
+--}
+
+--getRelocation :: [Label] -> Operand -> [Relocation]
+--getRelocation labels operand = do
+--    let label = find (\l -> (name l) == (text operand)) labels
+--    case label of
+--        Just l -> [Relocation operand l]
+--        Nothing -> []
+--
+--getRelocations :: [Section] -> [Label] -> [Relocation]
+--getRelocations sections labels = do
+--    let allInstructions = concat [instructions s | s <- sections]
+--    let allOperands = concat [operands i | i <- allInstructions]
+--    concat (map (getRelocation labels) allOperands)
 
 --showRelocation :: Relocation -> [Char]
 --showRelocation relocation =
