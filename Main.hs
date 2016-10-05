@@ -202,10 +202,27 @@ parseSectionsInner lines kind = do
 parseSections :: [[[Char]]] -> [Section]
 parseSections lines = parseSectionsInner lines "base"
 
+isQuote :: [Char] -> Bool
+isQuote str =
+    case (length str) of
+        0 -> False
+        1 -> False
+        _ -> (head str) == '"' && (last str) == '"'
+
+renderDbOperand :: Operand -> [Int]
+renderDbOperand operand = do
+    case isQuote (text operand) of
+        False -> [read (text operand) :: Int]
+        True  -> map ord (init (drop 1 (text operand)))
+
+renderDb :: Instruction -> [Int]
+renderDb inst = concat (map renderDbOperand (operands inst))
+
 renderInstruction :: Instruction -> [Int]
 renderInstruction inst = do
     case (command inst) of "syscall" -> (renderSysCall inst)
                            "mov"     -> (renderMov inst)
+                           "db"      -> (renderDb inst)
 
 renderSysCall :: Instruction -> [Int]
 renderSysCall inst = [0x0f, 0x05]
@@ -275,11 +292,12 @@ sectionHeaderTypeToInt32 sht = case sht of SHT_NULL     -> 0
                                            SHT_SYMTAB   -> 2
                                            SHT_STRTAB   -> 3
 
-data SectionHeaderFlags = SHF_NONE | SHF_ALLOC_WRITE -- TODO
+data SectionHeaderFlags = SHF_NONE | SHF_ALLOC_WRITE | SHF_ALLOC_EXEC -- TODO
 
 sectionHeaderFlagsToInt64 :: SectionHeaderFlags -> Int64
-sectionHeaderFlagsToInt64 shf = case shf of SHF_NONE        -> 0
-                                            SHF_ALLOC_WRITE -> 6
+sectionHeaderFlagsToInt64 shf = case shf of SHF_NONE        -> 0  -- TODO
+                                            SHF_ALLOC_EXEC  -> 6
+                                            SHF_ALLOC_WRITE -> 3
 
 data SectionHeader = SectionHeader {
     sectionName    :: [Char],
@@ -314,6 +332,8 @@ getStrTabIndex :: [[Char]] -> [Char] -> Int
 getStrTabIndex strtab find = length (fst (break (== find) strtab))
 
 getStrTabOffsetInner :: [[Char]] -> [Char] -> Int32 -> Int32
+getStrTabOffsetInner [] find _ = error ("strtab entry not found: " ++
+                                        (show find))
 getStrTabOffsetInner strtab find offset = do
     let current = head strtab
 
@@ -356,29 +376,33 @@ getShStrTabIndex :: [SectionHeader] -> Int
 getShStrTabIndex headers = do
     length (fst (break (\s -> ((sectionName) s == ".shstrtab")) headers))
 
-createTextSectionHeader :: Section -> SectionHeader
-createTextSectionHeader section = do
-    let text = renderSection section
+-- Helper function for creating section headers of various types
+createSectionHeaderInner :: Section -> SectionHeaderFlags -> Int64 ->
+                            SectionHeader
+createSectionHeaderInner section flags addralign = do
+    let content = renderSection section
     SectionHeader {
         sectionName = "." ++ kind section,
-        sectionData = text,
+        sectionData = content,
         sectionPadding = 0,
         sh_name = 0,
         sh_type = SHT_PROGBITS,
-        sh_flags = SHF_ALLOC_WRITE,
+        sh_flags = flags,
         sh_addr = 0,
         sh_offset = 0,
-        sh_size = fromIntegral (length text) :: Int64,
+        sh_size = fromIntegral (length content) :: Int64,
         sh_link = 0,
         sh_info = 0,
-        sh_addralign = 0x10,
+        sh_addralign = addralign,
         sh_entsize = 0
     }
 
 createSectionHeader :: Section -> [SectionHeader]
 createSectionHeader section =
-    case (kind section) of "text" -> [createTextSectionHeader section]
-                           "base" -> []
+    case (kind section) of
+        "text" -> [createSectionHeaderInner section SHF_ALLOC_EXEC 0x10]
+        "data" -> [createSectionHeaderInner section SHF_ALLOC_WRITE 0x4]
+        "base" -> []
 
 renderSectionData :: SectionHeader -> [Int]
 renderSectionData header =
@@ -390,6 +414,78 @@ renderSectionsData :: [SectionHeader] -> [Int]
 renderSectionsData [] = []
 renderSectionsData headers = concat (map renderSectionData headers)
 
+data SymTabEntryType = STT_NOTYPE | STT_SECTION | STT_FILE
+
+renderSymTabEntryType :: SymTabEntryType -> [Int]
+renderSymTabEntryType t =
+    [case t of
+        STT_NOTYPE  -> 0
+        STT_SECTION -> 3
+        STT_FILE    -> 4]
+
+data SymTabEntryVisibility = STV_DEFAULT
+
+renderSymTabEntryVisibility :: SymTabEntryVisibility -> [Int]
+renderSymTabEntryVisibility v =
+    [case v of
+        STV_DEFAULT -> 0]
+
+data SymTabEntry = SymTabEntry {
+    st_name  :: [Char],
+    st_info  :: SymTabEntryType,
+    st_other :: SymTabEntryVisibility,
+    st_shndx :: Int16, -- TODO: Find uint types
+    st_value :: Int64,
+    st_size  :: Int64
+}
+
+renderSymTabEntry :: [[Char]] -> SymTabEntry -> [Int]
+renderSymTabEntry strtab entry =
+    renderInt32 (fromIntegral (getStrTabOffset strtab (st_name entry))
+        :: Int32) ++
+    renderSymTabEntryType (st_info entry) ++
+    renderSymTabEntryVisibility (st_other entry) ++
+    renderInt16 (st_shndx entry) ++
+    renderInt64 (st_value entry) ++
+    renderInt64 (st_size entry)
+
+sectionsToSymTabInner :: [SectionHeader] -> Int16 -> [SymTabEntry]
+sectionsToSymTabInner [] _ = []
+sectionsToSymTabInner sections index =
+    [SymTabEntry {
+        st_name  = "",
+        st_info  = STT_SECTION,
+        st_other = STV_DEFAULT,
+        st_shndx = index,
+        st_value = 0,
+        st_size  = 0
+    }] ++ sectionsToSymTabInner (tail sections) (succ index)
+
+sectionsToSymTab :: [SectionHeader] -> [SymTabEntry]
+sectionsToSymTab s = sectionsToSymTabInner s 1
+
+labelsToSymTabInner :: [Section] -> Int16 -> [SymTabEntry]
+labelsToSymTabInner [] _ = []
+labelsToSymTabInner sections index = do
+    let section = head sections
+
+    let labelOffsets = concat [[(l, instructionOffset i) | l <- labels i] |
+                               i <- instructions section]
+
+    let ret = [SymTabEntry {
+        st_name  = fst label,
+        st_info  = STT_NOTYPE,
+        st_other = STV_DEFAULT,
+        st_shndx = index,
+        st_value = fromIntegral (snd label) :: Int64,
+        st_size  = 0
+    } | label <- labelOffsets]
+
+    ret ++ labelsToSymTabInner (tail sections) (succ index)
+
+labelsToSymTab :: [Section] -> [SymTabEntry]
+labelsToSymTab sections = labelsToSymTabInner sections 1
+
 main :: IO ()
 main = do
     contents <- getContents
@@ -399,6 +495,7 @@ main = do
     let merged = mergeLabels processed
     let emptied = removeEmptyLines merged
     let sections = parseSections emptied
+    let sectionsAfterBase = tail sections
     --putStr (showSections sections)
 
     --let relocations = getRelocations sections labels   
@@ -406,12 +503,17 @@ main = do
     let e_ehsize = 64 :: Int16
     let e_shentsize = 64 :: Int16
     let e_shoff = 64 :: Int64
+
+    let filename = "test2.asm"
+    let entryPoint = "_start"
  
     let strtab = ["",
-                  "test2.asm",
-                  "_start"]
+                  filename,
+                  entryPoint,
+                  "message"]
 
     let shstrtab = ["",
+                    ".data",
                     ".text",
                     ".shstrtab",
                     ".symtab",
@@ -420,46 +522,34 @@ main = do
     let renderedStrTab = renderStrTab(strtab)
     let renderedShStrTab = renderStrTab(shstrtab)
 
-    let renderedSymTab = [0x00, 0x00, 0x00, 0x00,
-                          0x00,
-                          0x00,
-                          0x00, 0x00,
-                          0x00, 0x00, 0x00, 0x00,
-                          0x00, 0x00, 0x00, 0x00,
-                          0x00, 0x00, 0x00, 0x00,
-                          0x00, 0x00, 0x00, 0x00,
+    let userSectionHeaders = concat (map createSectionHeader sections)
 
-                          -- test2.asm
-                          0x01, 0x00, 0x00, 0x00,   -- st_name test2.asm
-                          0x04,                     -- st_info STT_FILE
-                          0x00,                     -- st_other STV_DEFAULT
-                          0xf1, 0xff,               -- st_shndx ???
-                          0x00, 0x00, 0x00, 0x00,   -- st_value
-                          0x00, 0x00, 0x00, 0x00,
-                          0x00, 0x00, 0x00, 0x00,   -- st_size
-                          0x00, 0x00, 0x00, 0x00,
+    let stNull = SymTabEntry {
+        st_name  = "",
+        st_info  = STT_NOTYPE,
+        st_other = STV_DEFAULT,
+        st_shndx = 0,
+        st_value = 0,
+        st_size  = 0
+    }
 
-                          -- section
-                          0x00, 0x00, 0x00, 0x00,
-                          0x03,                     -- st_info STT_SECTION
-                          0x00,
-                          0x01, 0x00,               -- st_shndx ???
-                          0x00, 0x00, 0x00, 0x00,
-                          0x00, 0x00, 0x00, 0x00,
-                          0x00, 0x00, 0x00, 0x00,
-                          0x00, 0x00, 0x00, 0x00,
+    let stFile = SymTabEntry {
+        st_name  = filename,
+        st_info  = STT_FILE,
+        st_other = STV_DEFAULT,
+        st_shndx = 65521,
+        st_value = 0,
+        st_size  = 0
+    }
 
-                          -- _start
-                          0x0b, 0x00, 0x00, 0x00,   -- st_name test2.asm
-                          0x00,
-                          0x00,
-                          0x01, 0x00,               -- st_shndx ???
-                          0x00, 0x00, 0x00, 0x00,
-                          0x00, 0x00, 0x00, 0x00,
-                          0x00, 0x00, 0x00, 0x00,
-                          0x00, 0x00, 0x00, 0x00]
+    let stSections = sectionsToSymTab userSectionHeaders
+    let stLabels = labelsToSymTab sectionsAfterBase
 
-    let headers = concat (map createSectionHeader sections) ++ [SectionHeader {
+    let symtab = [stNull, stFile] ++ stSections ++ stLabels
+
+    let renderedSymTab = concat (map (renderSymTabEntry strtab) symtab)
+
+    let headers = userSectionHeaders ++ [SectionHeader {
         sectionName = ".shstrtab",
         sectionData = renderedShStrTab,
         sectionPadding = 0,
@@ -483,8 +573,8 @@ main = do
         sh_addr = 0,
         sh_offset = 0,
         sh_size = fromIntegral (length renderedSymTab) :: Int64,
-        sh_link = 0x4,
-        sh_info = 0x4,
+        sh_link = 0x5,      -- TODO: Link to strtab index
+        sh_info = fromIntegral (length symtab) :: Int32,
         sh_addralign = 0x4,
         sh_entsize = 0x18
     }, SectionHeader {
