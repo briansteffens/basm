@@ -601,6 +601,11 @@ renderRelocation relo =
     renderInt64 (fromIntegral (instructionOffset (targetInstruction relo)) ::
                  Int64)
 
+allLabels :: [Section] -> [[Char]]
+allLabels sections = do
+    let allInstructions = concat [instructions s | s <- sections]
+    concat [labels i | i <- allInstructions]
+
 main :: IO ()
 main = do
     contents <- getContents
@@ -640,13 +645,8 @@ main = do
     let e_shoff = 64 :: Int64
 
     let filename = "test2.asm"
-    let entryPoint = "_start"
- 
-    let strtab = ["",
-                  filename,
-                  entryPoint,
-                  "message",
-                  "message2"]   -- TODO calculate
+
+    let strtab = ["", filename] ++ allLabels sectionsAfterBase
 
     let shstrtab = ["",         -- TODO calculate
                     ".data",
