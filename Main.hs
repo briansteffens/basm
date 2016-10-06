@@ -354,20 +354,28 @@ sectionHeaderFlagsToInt64 shf = case shf of SHF_NONE        -> 0  -- TODO
                                             SHF_ALLOC_WRITE -> 3
 
 data SectionHeader = SectionHeader {
-    sectionName    :: [Char],
-    sectionData    :: [Int],
-    sectionPadding :: Int,
-    sh_name        :: Int32,
-    sh_type        :: SectionHeaderType,
-    sh_flags       :: SectionHeaderFlags,
-    sh_addr        :: Int64,
-    sh_offset      :: Int64,
-    sh_size        :: Int64,
-    sh_link        :: Int32,
-    sh_info        :: Int32,
-    sh_addralign   :: Int64,
-    sh_entsize     :: Int64
+    sectionName     :: [Char],
+    sectionData     :: [Int],
+    sectionPadding  :: Int,
+    sectionLinkName :: [Char],
+    sh_name         :: Int32,
+    sh_type         :: SectionHeaderType,
+    sh_flags        :: SectionHeaderFlags,
+    sh_addr         :: Int64,
+    sh_offset       :: Int64,
+    sh_size         :: Int64,
+    sh_link         :: Int32,
+    sh_info         :: Int32,
+    sh_addralign    :: Int64,
+    sh_entsize      :: Int64
 }
+
+linkSectionHeader :: [SectionHeader] -> SectionHeader -> SectionHeader
+linkSectionHeader all header =
+    header {
+        sh_link = fromIntegral (getSectionHeaderIndex all
+                                (sectionLinkName header)) :: Int32
+    }
 
 renderSectionHeader :: SectionHeader -> [Int]
 renderSectionHeader sh =
@@ -425,10 +433,12 @@ align value alignment =
     case (mod value alignment) of 0 -> value
                                   r -> value + (alignment - r)
 
--- Find the index of the first shstrtab section header
-getShStrTabIndex :: [SectionHeader] -> Int
-getShStrTabIndex headers = do
-    length (fst (break (\s -> ((sectionName) s == ".shstrtab")) headers))
+-- Find index of a section header by name
+getSectionHeaderIndex :: [SectionHeader] -> [Char] -> Int
+getSectionHeaderIndex headers name = do
+    let broken = break (\s -> (sectionName s) == name) headers
+    case length (snd (broken)) of 0 -> 0
+                                  _ -> length (fst broken)
 
 -- Helper function for creating section headers of various types
 createSectionHeaderInner :: Section -> SectionHeaderFlags -> Int64 ->
@@ -439,6 +449,7 @@ createSectionHeaderInner section flags addralign = do
         sectionName = "." ++ kind section,
         sectionData = content,
         sectionPadding = 0,
+        sectionLinkName = "",
         sh_name = 0,
         sh_type = SHT_PROGBITS,
         sh_flags = flags,
@@ -610,15 +621,16 @@ main = do
         sectionName = ".rela.text",
         sectionData = renderedReloTab,
         sectionPadding = 0,
+        sectionLinkName = ".symtab",
         sh_name = 0,
         sh_type = SHT_RELA,
         sh_flags = SHF_NONE,
         sh_addr = 0,
         sh_offset = 0,
         sh_size = fromIntegral (length renderedReloTab) :: Int64,
-        sh_link = 0x4,      -- TODO: Link to shstrtab index
+        sh_link = 0,
         --sh_info = fromIntegral (length relocations) :: Int32,
-        sh_info = 0x2,
+        sh_info = 0x2, -- TODO ??
         sh_addralign = 0x4,
         sh_entsize = 0x18
     }
@@ -678,6 +690,7 @@ main = do
         sectionName = ".shstrtab",
         sectionData = renderedShStrTab,
         sectionPadding = 0,
+        sectionLinkName = "",
         sh_name = 0,
         sh_type = SHT_STRTAB,
         sh_flags = SHF_NONE,
@@ -692,13 +705,14 @@ main = do
         sectionName = ".symtab",
         sectionData = renderedSymTab,
         sectionPadding = 0,
+        sectionLinkName = ".strtab",
         sh_name = 0,
         sh_type = SHT_SYMTAB,
         sh_flags = SHF_NONE,
         sh_addr = 0,
         sh_offset = 0,
         sh_size = fromIntegral (length renderedSymTab) :: Int64,
-        sh_link = 0x5,      -- TODO: Link to strtab index
+        sh_link = 0,
         sh_info = fromIntegral (length symtab) :: Int32,
         sh_addralign = 0x4,
         sh_entsize = 0x18
@@ -706,6 +720,7 @@ main = do
         sectionName = ".strtab",
         sectionData = renderedStrTab,
         sectionPadding = 0,
+        sectionLinkName = "",
         sh_name = 0,
         sh_type = SHT_STRTAB,
         sh_flags = SHF_NONE,
@@ -734,6 +749,7 @@ main = do
         sectionName = "",
         sectionData = [],
         sectionPadding = 0,
+        sectionLinkName = "",
         sh_name = 0,
         sh_type = SHT_NULL,
         sh_flags = SHF_NONE,
@@ -746,10 +762,12 @@ main = do
         sh_entsize = 0
     }] ++ headers2
 
-    let headers4 = getSectionHeaderNameOffsets headers3 shstrtab
+    let headers3a = map (linkSectionHeader headers3) headers3
+    let headers4 = getSectionHeaderNameOffsets headers3a shstrtab
 
     let e_shnum = fromIntegral (length headers3) :: Int16
-    let e_shstrndx = fromIntegral (getShStrTabIndex headers4) :: Int16
+    let e_shstrndx = fromIntegral (getSectionHeaderIndex headers4 ".shstrtab")
+                                  :: Int16
 
     let header = [0x7f, 0x45, 0x4c, 0x46,          -- magic
                   0x02,                            -- 64-bit
