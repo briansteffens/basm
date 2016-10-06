@@ -6,12 +6,12 @@ import Data.Char
 import Data.Binary
 import Data.Binary.Put
 import qualified Data.ByteString.Lazy as BL
---import qualified Data.ByteString as B
 import Debug.Trace (trace)
 
 data Section = Section {
     kind :: [Char],
-    instructions :: [Instruction]
+    instructions :: [Instruction],
+    sectionIndex :: Int
 }
 
 data Instruction = Instruction {
@@ -31,13 +31,6 @@ data QuoteChar = QuoteChar {
     char :: Char,
     quoted :: Bool,
     bracketed :: Bool
-}
-
-data TokenType = Quote | Bracket | Loose
-
-data Token = Token {
-    tokenType :: TokenType,
-    contents :: [Char]
 }
 
 parseQuotesInner :: [Char] -> Maybe Char -> Bool -> Bool -> [QuoteChar]
@@ -148,12 +141,68 @@ mergeLabels :: [[[Char]]] -> [[[Char]]]
 mergeLabels input = mergeLabelsInner [] input
 
 commandSize :: [Char] -> Int
-commandSize cmd = 4
+commandSize cmd =
+    case cmd of "syscall" -> 2
+                "mov"     -> 2
+                "db"      -> 0
+                "%define" -> 1   -- TODO: hack
+
+calculateMovOffsets :: Instruction -> Int -> Instruction
+calculateMovOffsets inst offset = do
+    let cmdSize = commandSize (command inst)
+
+    inst {
+        instructionOffset = offset,
+        operands = [(head (operands inst)) {
+            operandOffset = offset + cmdSize,
+            operandSize   = 0
+        }, (last (operands inst)) {
+            operandOffset = offset + cmdSize,
+            operandSize   = 8
+        }]
+    }
+
+calculateSysCallOffsets :: Instruction -> Int -> Instruction
+calculateSysCallOffsets inst offset = do
+    inst {
+        instructionOffset = offset
+    }
+
+calculateDbOffsets :: Instruction -> Int -> Instruction
+calculateDbOffsets inst offset = do
+    inst {
+        instructionOffset = offset
+    }
+
+calculateInstructionOffsets :: [Instruction] -> Int -> [Instruction]
+calculateInstructionOffsets [] _ = []
+calculateInstructionOffsets instructions offset = do
+    let current = head instructions
+
+    let calculator = case command current of "mov"     -> calculateMovOffsets
+                                             "syscall" -> calculateSysCallOffsets
+                                             "db"      -> calculateDbOffsets
+
+    let ret = calculator current offset
+
+    let size = (commandSize (command current)) +
+               sum [operandSize o | o <- operands ret]
+
+    [ret] ++ calculateInstructionOffsets (tail instructions) (offset + size)
+
+calculateSectionOffsets :: [Section] -> [Section]
+calculateSectionOffsets [] = []
+calculateSectionOffsets sections = do
+    let current = head sections
+    let ret = current {
+        instructions = calculateInstructionOffsets (instructions current) 0
+    }
+    [ret] ++ calculateSectionOffsets (tail sections)
 
 parseOperands :: [[Char]] -> Int -> [Operand]
 parseOperands [] _ = []
 parseOperands operands offset = do
-    let ret = Operand (head operands) offset 8
+    let ret = Operand (head operands) offset 0
 
     let inner = parseOperands (tail operands) (offset + (operandSize ret))
 
@@ -182,14 +231,14 @@ parseInstructionsInner lines offset = do
 parseInstructions :: [[[Char]]] -> [Instruction]
 parseInstructions lines = parseInstructionsInner lines 0
 
-parseSectionsInner :: [[[Char]]] -> [Char] -> [Section]
-parseSectionsInner [] _ = []
-parseSectionsInner lines kind = do
+parseSectionsInner :: [[[Char]]] -> [Char] -> Int -> [Section]
+parseSectionsInner [] _ _ = []
+parseSectionsInner lines kind index = do
     let broken = break (\s -> head s == "section") lines
 
     let instructions = parseInstructions (fst broken)
 
-    let ret = Section kind instructions
+    let ret = Section kind instructions index
 
     let nextSection = drop 1 ((head (snd broken)) !! 1)
 
@@ -197,10 +246,10 @@ parseSectionsInner lines kind = do
     let remaining = case anyLeft of False -> []
                                     True  -> tail (snd broken)
 
-    [ret] ++ parseSectionsInner remaining nextSection
+    [ret] ++ parseSectionsInner remaining nextSection (succ index)
 
 parseSections :: [[[Char]]] -> [Section]
-parseSections lines = parseSectionsInner lines "base"
+parseSections lines = parseSectionsInner lines "base" 0
 
 isQuote :: [Char] -> Bool
 isQuote str =
@@ -284,13 +333,18 @@ renderInt32 src = reverse [fromIntegral o :: Int | o <- BL.unpack (encode src)]
 renderInt64 :: Int64 -> [Int]
 renderInt64 src = reverse [fromIntegral o :: Int | o <- BL.unpack (encode src)]
 
-data SectionHeaderType = SHT_NULL | SHT_PROGBITS | SHT_SYMTAB | SHT_STRTAB
+data SectionHeaderType = SHT_NULL |
+                         SHT_PROGBITS |
+                         SHT_SYMTAB |
+                         SHT_STRTAB |
+                         SHT_RELA
 
 sectionHeaderTypeToInt32 :: SectionHeaderType -> Int32
 sectionHeaderTypeToInt32 sht = case sht of SHT_NULL     -> 0
                                            SHT_PROGBITS -> 1
                                            SHT_SYMTAB   -> 2
                                            SHT_STRTAB   -> 3
+                                           SHT_RELA     -> 4
 
 data SectionHeaderFlags = SHF_NONE | SHF_ALLOC_WRITE | SHF_ALLOC_EXEC -- TODO
 
@@ -486,6 +540,56 @@ labelsToSymTabInner sections index = do
 labelsToSymTab :: [Section] -> [SymTabEntry]
 labelsToSymTab sections = labelsToSymTabInner sections 1
 
+data Relocation = Relocation {
+    sourceSection     :: Section,
+    sourceOperand     :: Operand,
+    targetSection     :: Section,
+    targetInstruction :: Instruction
+}
+
+findLabel :: [Section] -> [Char] -> Maybe (Section, Instruction)
+findLabel [] labelName = Nothing
+findLabel sections labelName = do
+    let section = head sections
+
+    let broken = break (\i -> elem labelName (labels i)) (instructions section)
+    let found = length (snd broken) > 0
+
+    case length (snd broken) > 0 of
+        True  -> Just (section, head (snd broken))
+        False -> findLabel (tail sections) labelName
+
+getRelocation :: [Section] -> Section -> Operand -> [Relocation]
+getRelocation sections section operand = do
+    case findLabel sections (text operand) of
+        Nothing -> []
+        Just (s, i)  -> [Relocation {
+                            sourceSection     = section,
+                            sourceOperand     = operand,
+                            targetSection     = s,
+                            targetInstruction = i
+                        }]
+
+getRelocationsInner :: [Section] -> [Section] -> [Relocation]
+getRelocationsInner [] _ = []
+getRelocationsInner remainingSections allSections = do
+    let section = head remainingSections
+    let allOperands = concat [operands i | i <- instructions section]
+
+    let ret = concat (map (getRelocation allSections section) allOperands)
+    ret ++ getRelocationsInner (tail remainingSections) allSections
+
+getRelocations :: [Section] -> [Relocation]
+getRelocations sections = getRelocationsInner sections sections
+
+renderRelocation :: Relocation -> [Int]
+renderRelocation relo =
+    renderInt64 (fromIntegral (operandOffset (sourceOperand relo)) :: Int64) ++
+    renderInt32 (fromIntegral (sectionIndex (targetSection relo)) :: Int32) ++
+    renderInt32 (fromIntegral (sectionIndex (sourceSection relo)) :: Int32) ++
+    renderInt64 (fromIntegral (instructionOffset (targetInstruction relo)) ::
+                 Int64)
+
 main :: IO ()
 main = do
     contents <- getContents
@@ -494,11 +598,30 @@ main = do
     let processed = map processLine sourceLines
     let merged = mergeLabels processed
     let emptied = removeEmptyLines merged
-    let sections = parseSections emptied
-    let sectionsAfterBase = tail sections
-    --putStr (showSections sections)
+    let tempSections = parseSections emptied
+    let sections = calculateSectionOffsets tempSections
+    let sectionsAfterBase = (tail sections)
+    --putStr (showSections sectionsAfterBase)
 
-    --let relocations = getRelocations sections labels   
+    let relocations = getRelocations sectionsAfterBase
+    let renderedReloTab = concat (map renderRelocation relocations)
+
+    let shRelo = SectionHeader {
+        sectionName = ".rela.text",
+        sectionData = renderedReloTab,
+        sectionPadding = 0,
+        sh_name = 0,
+        sh_type = SHT_RELA,
+        sh_flags = SHF_NONE,
+        sh_addr = 0,
+        sh_offset = 0,
+        sh_size = fromIntegral (length renderedReloTab) :: Int64,
+        sh_link = 0x4,      -- TODO: Link to shstrtab index
+        --sh_info = fromIntegral (length relocations) :: Int32,
+        sh_info = 0x2,
+        sh_addralign = 0x4,
+        sh_entsize = 0x18
+    }
 
     let e_ehsize = 64 :: Int16
     let e_shentsize = 64 :: Int16
@@ -510,14 +633,16 @@ main = do
     let strtab = ["",
                   filename,
                   entryPoint,
-                  "message"]
+                  "message",
+                  "message2"]   -- TODO calculate
 
-    let shstrtab = ["",
+    let shstrtab = ["",         -- TODO calculate
                     ".data",
                     ".text",
                     ".shstrtab",
                     ".symtab",
-                    ".strtab"]
+                    ".strtab",
+                    ".rela.text"]
 
     let renderedStrTab = renderStrTab(strtab)
     let renderedShStrTab = renderStrTab(shstrtab)
@@ -591,7 +716,7 @@ main = do
         sh_info = 0,
         sh_addralign = 0x1,
         sh_entsize = 0
-    }]
+    }, shRelo]
 
     let e_ehsize = 64 :: Int16
     let e_shentsize = 64 :: Int16
@@ -656,6 +781,7 @@ main = do
                    (concat renderedSectionHeaders) ++
                    renderSectionsData(headers4)
 
+    --putStr "\n"
     BL.putStr (toByteString rendered)
 
 showSection :: Section -> [Char]
@@ -675,26 +801,3 @@ showInstruction i =
 
 showOperand :: Operand -> [Char]
 showOperand o = show (operandOffset o) ++ ": " ++ text o
-
---data Relocation = Relocation {
---    replace :: Operand,
---    target :: Label
---}
-
---getRelocation :: [Label] -> Operand -> [Relocation]
---getRelocation labels operand = do
---    let label = find (\l -> (name l) == (text operand)) labels
---    case label of
---        Just l -> [Relocation operand l]
---        Nothing -> []
---
---getRelocations :: [Section] -> [Label] -> [Relocation]
---getRelocations sections labels = do
---    let allInstructions = concat [instructions s | s <- sections]
---    let allOperands = concat [operands i | i <- allInstructions]
---    concat (map (getRelocation labels) allOperands)
-
---showRelocation :: Relocation -> [Char]
---showRelocation relocation =
---    (show (operandOffset (replace relocation))) ++ " => " ++
---    (T.unpack (name (target relocation)))
