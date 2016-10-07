@@ -3,6 +3,7 @@ module Main where
 import Data.Int
 import Data.List
 import Data.Char
+import Data.Bits
 import Data.Binary
 import Data.Binary.Put
 import qualified Data.ByteString.Lazy as BL
@@ -482,12 +483,12 @@ renderSectionsData headers = concat (map renderSectionData headers)
 
 data SymTabEntryType = STT_NOTYPE | STT_SECTION | STT_FILE
 
-renderSymTabEntryType :: SymTabEntryType -> [Int]
+renderSymTabEntryType :: SymTabEntryType -> Int
 renderSymTabEntryType t =
-    [case t of
+    case t of
         STT_NOTYPE  -> 0
         STT_SECTION -> 3
-        STT_FILE    -> 4]
+        STT_FILE    -> 4
 
 data SymTabEntryVisibility = STV_DEFAULT
 
@@ -496,20 +497,33 @@ renderSymTabEntryVisibility v =
     [case v of
         STV_DEFAULT -> 0]
 
+data SymTabEntryBinding = STB_LOCAL | STB_GLOBAL
+
+renderSymTabEntryBinding :: SymTabEntryBinding -> Int
+renderSymTabEntryBinding b =
+    case b of
+        STB_LOCAL  -> 0
+        STB_GLOBAL -> 1
+
 data SymTabEntry = SymTabEntry {
-    st_name  :: [Char],
-    st_info  :: SymTabEntryType,
-    st_other :: SymTabEntryVisibility,
-    st_shndx :: Int16, -- TODO: Find uint types
-    st_value :: Int64,
-    st_size  :: Int64
+    symTabType    :: SymTabEntryType,
+    symTabBinding :: SymTabEntryBinding,
+    st_name       :: [Char],
+    st_other      :: SymTabEntryVisibility,
+    st_shndx      :: Int16, -- TODO: Find uint types
+    st_value      :: Int64,
+    st_size       :: Int64
 }
+
+renderSymTabInfo :: SymTabEntryBinding -> SymTabEntryType -> [Int]
+renderSymTabInfo b t = [(shiftL (renderSymTabEntryBinding b) 4) +
+                        (renderSymTabEntryType t)]
 
 renderSymTabEntry :: [[Char]] -> SymTabEntry -> [Int]
 renderSymTabEntry strtab entry =
     renderInt32 (fromIntegral (getStrTabOffset strtab (st_name entry))
         :: Int32) ++
-    renderSymTabEntryType (st_info entry) ++
+    renderSymTabInfo (symTabBinding entry) (symTabType entry) ++
     renderSymTabEntryVisibility (st_other entry) ++
     renderInt16 (st_shndx entry) ++
     renderInt64 (st_value entry) ++
@@ -520,7 +534,8 @@ sectionsToSymTabInner [] _ = []
 sectionsToSymTabInner sections index =
     [SymTabEntry {
         st_name  = "",
-        st_info  = STT_SECTION,
+        symTabType = STT_SECTION,
+        symTabBinding = STB_LOCAL,
         st_other = STV_DEFAULT,
         st_shndx = index,
         st_value = 0,
@@ -530,9 +545,9 @@ sectionsToSymTabInner sections index =
 sectionsToSymTab :: [SectionHeader] -> [SymTabEntry]
 sectionsToSymTab s = sectionsToSymTabInner s 1
 
-labelsToSymTabInner :: [Section] -> Int16 -> [SymTabEntry]
-labelsToSymTabInner [] _ = []
-labelsToSymTabInner sections index = do
+labelsToSymTabInner :: [Section] -> [[Char]] -> Int16 -> [SymTabEntry]
+labelsToSymTabInner [] _ _ = []
+labelsToSymTabInner sections globals index = do
     let section = head sections
 
     let labelOffsets = concat [[(l, instructionOffset i) | l <- labels i] |
@@ -540,17 +555,19 @@ labelsToSymTabInner sections index = do
 
     let ret = [SymTabEntry {
         st_name  = fst label,
-        st_info  = STT_NOTYPE,
+        symTabType = STT_NOTYPE,
         st_other = STV_DEFAULT,
+        symTabBinding = case elem (fst label) globals of False -> STB_LOCAL
+                                                         True  -> STB_GLOBAL,
         st_shndx = index,
         st_value = fromIntegral (snd label) :: Int64,
         st_size  = 0
     } | label <- labelOffsets]
 
-    ret ++ labelsToSymTabInner (tail sections) (succ index)
+    ret ++ labelsToSymTabInner (tail sections) globals (succ index)
 
-labelsToSymTab :: [Section] -> [SymTabEntry]
-labelsToSymTab sections = labelsToSymTabInner sections 1
+labelsToSymTab :: [Section] -> [[Char]] -> [SymTabEntry]
+labelsToSymTab sections globals = labelsToSymTabInner sections globals 1
 
 data Relocation = Relocation {
     sourceSection     :: Section,
@@ -629,6 +646,22 @@ reloHeaders relocations = do
         sh_entsize = 0x18
     }]
 
+extractGlobals :: [[[Char]]] -> ([[[Char]]], [[Char]])
+extractGlobals [] = ([], [])
+extractGlobals lines = do
+    let current = head lines
+
+    let isGlobal = (head current) == "global"
+
+    let retLine = case isGlobal of False -> [current]
+                                   True  -> []
+
+    let retGlobal = case isGlobal of False -> []
+                                     True  -> [current !! 1]
+
+    let inner = extractGlobals (tail lines)
+    (retLine ++ fst inner, retGlobal ++ snd inner)
+
 main :: IO ()
 main = do
     contents <- getContents
@@ -637,7 +670,8 @@ main = do
     let processed = map processLine sourceLines
     let merged = mergeLabels processed
     let emptied = removeEmptyLines merged
-    let tempSections = parseSections emptied
+    let (extracted, globals) = extractGlobals emptied
+    let tempSections  = parseSections extracted
     let sections = calculateSectionOffsets tempSections
     let sectionsAfterBase = (tail sections)
     --putStr (showSections sectionsAfterBase)
@@ -663,7 +697,8 @@ main = do
 
     let stNull = SymTabEntry {
         st_name  = "",
-        st_info  = STT_NOTYPE,
+        symTabType  = STT_NOTYPE,
+        symTabBinding = STB_LOCAL,
         st_other = STV_DEFAULT,
         st_shndx = 0,
         st_value = 0,
@@ -672,7 +707,8 @@ main = do
 
     let stFile = SymTabEntry {
         st_name  = filename,
-        st_info  = STT_FILE,
+        symTabType  = STT_FILE,
+        symTabBinding = STB_LOCAL,
         st_other = STV_DEFAULT,
         st_shndx = 65521,
         st_value = 0,
@@ -680,7 +716,7 @@ main = do
     }
 
     let stSections = sectionsToSymTab userSectionHeaders
-    let stLabels = labelsToSymTab sectionsAfterBase
+    let stLabels = labelsToSymTab sectionsAfterBase globals
 
     let symtab = [stNull, stFile] ++ stSections ++ stLabels
 
@@ -713,7 +749,7 @@ main = do
         sh_offset = 0,
         sh_size = fromIntegral (length renderedSymTab) :: Int64,
         sh_link = 0,
-        sh_info = fromIntegral (length symtab) :: Int32,
+        sh_info = fromIntegral ((length symtab) - 1) :: Int32,
         sh_addralign = 0x4,
         sh_entsize = 0x18
     }, SectionHeader {
