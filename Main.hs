@@ -624,7 +624,7 @@ reloHeaders relocations = do
         sh_offset = 0,
         sh_size = fromIntegral (length rendered) :: Int64,
         sh_link = 0,
-        sh_info = 0x2, -- TODO ??
+        sh_info = 0x2, -- TODO: link to text section
         sh_addralign = 0x4,
         sh_entsize = 0x18
     }]
@@ -643,7 +643,6 @@ main = do
     --putStr (showSections sectionsAfterBase)
 
     let shRelo = reloHeaders (getRelocations sectionsAfterBase)
-    let dynamicSh = shRelo
 
     let e_ehsize = 64 :: Int16
     let e_shentsize = 64 :: Int16
@@ -653,17 +652,14 @@ main = do
 
     let strtab = ["", filename] ++ allLabels sectionsAfterBase
 
-    let shstrtab = ["",         -- TODO calculate
-                    ".data",
-                    ".text",
-                    ".shstrtab",
-                    ".symtab",
-                    ".strtab"] ++ [sectionName s | s <- dynamicSh]
+    let userSectionHeaders = concat (map createSectionHeader sections)
+    let dynamicSh = userSectionHeaders ++ shRelo
+
+    let shstrtab = ["", ".shstrtab", ".symtab", ".strtab"] ++
+                   [sectionName s | s <- dynamicSh]
 
     let renderedStrTab = renderStrTab(strtab)
     let renderedShStrTab = renderStrTab(shstrtab)
-
-    let userSectionHeaders = concat (map createSectionHeader sections)
 
     let stNull = SymTabEntry {
         st_name  = "",
@@ -735,7 +731,7 @@ main = do
         sh_info = 0,
         sh_addralign = 0x1,
         sh_entsize = 0
-    }] ++ dynamicSh
+    }] ++ shRelo
 
     let e_ehsize = 64 :: Int16
     let e_shentsize = 64 :: Int16
