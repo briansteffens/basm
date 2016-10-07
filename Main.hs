@@ -9,144 +9,7 @@ import Data.Binary.Put
 import qualified Data.ByteString.Lazy as BL
 import Debug.Trace (trace)
 
-data Section = Section {
-    kind :: [Char],
-    instructions :: [Instruction],
-    sectionIndex :: Int
-}
-
-data Instruction = Instruction {
-    labels :: [[Char]],
-    command :: [Char],
-    operands :: [Operand],
-    instructionOffset :: Int
-}
-
-data Operand = Operand {
-    text :: [Char],
-    operandOffset :: Int,
-    operandSize :: Int
-}
-
-data QuoteChar = QuoteChar {
-    char :: Char,
-    quoted :: Bool,
-    bracketed :: Bool
-}
-
-parseQuotesInner :: [Char] -> Maybe Char -> Bool -> Bool -> [QuoteChar]
-parseQuotesInner [] _ _ _ = []
-parseQuotesInner input previous inQuote inBracket = do
-    let current = head input
-    let escaped = case previous of Just c  -> c == '\\'
-                                   Nothing -> False
-    let isQuote = (not escaped) && current == '"'
-    let newInQuote = case inQuote of False -> isQuote
-                                     True  -> not isQuote
-    let tempNewInBracket = case inBracket of False -> current == '['
-                                             True  -> current /= ']'
-    let newInBracket = (not inQuote) && tempNewInBracket
-    let inner = parseQuotesInner (tail input) (Just current) newInQuote
-                                 newInBracket
-    [(QuoteChar current (inQuote && (not isQuote))
-      (newInBracket || inBracket))] ++ inner
-
-parseQuotes :: [Char] -> [QuoteChar]
-parseQuotes input = parseQuotesInner input Nothing False False
-
-showQuoteChar :: QuoteChar -> [Char]
-showQuoteChar parsed =
-    [(char parsed)] ++
-    (if (quoted parsed) then " quoted" else "") ++
-    (if (bracketed parsed) then " bracketed" else "")
-
-showQuoteChars :: [QuoteChar] -> [Char]
-showQuoteChars parsed = intercalate "\n" (map showQuoteChar parsed)
-
-stripComment :: [QuoteChar] -> [QuoteChar]
-stripComment input = fst (break (\s -> (char s) == ';' &&
-                                       (not (quoted s)) &&
-                                       (not (bracketed s))) input)
-
-isDelimiter :: Char -> Bool
-isDelimiter input = input == ' ' ||
-                    input == ':' ||
-                    input == '\t' ||
-                    input == ','
-
-splitQuoteCharsInner :: [QuoteChar] -> [QuoteChar] -> [[QuoteChar]]
-splitQuoteCharsInner [] accumulator = [accumulator]
-splitQuoteCharsInner remaining accumulator = do
-    let current = head remaining
-    let theRest = tail remaining
-
-    let split = (isDelimiter (char current)) &&
-                (not (quoted current)) &&
-                (not (bracketed current))
-
-    let ret = case split of False -> []
-                            True  -> accumulator
-
-    -- Semicolon is an abnormal delimiter: add it to the return
-    let ret2 = case (char current) of ':' -> accumulator ++ [current]
-                                      _   -> ret
-
-    let newNext = case split of False -> accumulator ++ [current]
-                                True  -> []
-
-    [ret2] ++ (splitQuoteCharsInner theRest newNext)
-
-splitQuoteChars :: [QuoteChar] -> [[QuoteChar]]
-splitQuoteChars input = splitQuoteCharsInner input []
-
-removeEmpty :: [[QuoteChar]] -> [[QuoteChar]]
-removeEmpty input = [s | s <- input, not (null s)]
-
-toText :: [QuoteChar] -> [Char]
-toText x = [char s | s <- x]
-
-toTextArray :: [[QuoteChar]] -> [[Char]]
-toTextArray x = [toText s | s <- x]
-
-processLine :: [Char] -> [[Char]]
-processLine = toTextArray .
-              removeEmpty .
-              splitQuoteChars .
-              stripComment .
-              parseQuotes
-
-removeEmptyLines :: [[[Char]]] -> [[[Char]]]
-removeEmptyLines input = [i | i <- input, (length i) > 0]
-
-showLine lines = "LINE:\n  " ++ (intercalate "\n  " lines)
-
-mergeLabelsInner :: [[Char]] -> [[[Char]]] -> [[[Char]]]
-mergeLabelsInner _ [] = []
-mergeLabelsInner labels remaining = do
-    let current = head remaining
-
-    let allLabels = all (\s -> last s == ':') current
-
-    -- TODO: more expressive way to do these next two lines?
-    let ret = case allLabels of False -> labels ++ current
-                                True  -> []
-
-    let innerLabels = case allLabels of False -> []
-                                        True  -> labels ++ current
-
-    let inner = mergeLabelsInner innerLabels (tail remaining)
-
-    [ret] ++ inner
-
-mergeLabels :: [[[Char]]] -> [[[Char]]]
-mergeLabels input = mergeLabelsInner [] input
-
-commandSize :: [Char] -> Int
-commandSize cmd =
-    case cmd of "syscall" -> 2
-                "mov"     -> 2
-                "db"      -> 0
-                "%define" -> 1   -- TODO: hack
+import Parser
 
 calculateMovOffsets :: Instruction -> Int -> Instruction
 calculateMovOffsets inst offset = do
@@ -180,10 +43,11 @@ calculateInstructionOffsets [] _ = []
 calculateInstructionOffsets instructions offset = do
     let current = head instructions
 
-    let calculator = case command current of "mov"     -> calculateMovOffsets
-                                             "syscall" -> calculateSysCallOffsets
-                                             "db"      -> calculateDbOffsets
-                                             x         -> error ("Unrecognized command: " ++ show x)
+    let calculator = case command current of
+         "mov"     -> calculateMovOffsets
+         "syscall" -> calculateSysCallOffsets
+         "db"      -> calculateDbOffsets
+         x         -> error ("Unrecognized command: " ++ show x)
 
     let ret = calculator current offset
 
@@ -200,58 +64,6 @@ calculateSectionOffsets sections = do
         instructions = calculateInstructionOffsets (instructions current) 0
     }
     [ret] ++ calculateSectionOffsets (tail sections)
-
-parseOperands :: [[Char]] -> Int -> [Operand]
-parseOperands [] _ = []
-parseOperands operands offset = do
-    let ret = Operand (head operands) offset 0
-
-    let inner = parseOperands (tail operands) (offset + (operandSize ret))
-
-    [ret] ++ inner
-
-parseInstructionsInner :: [[[Char]]] -> Int -> [Instruction]
-parseInstructionsInner [] _ = []
-parseInstructionsInner lines offset = do
-    let current = head lines
-    let parts = break (\s -> last s /= ':') current
-    let labels = [init l | l <- fst parts]
-    let nonLabel = snd parts
-    let operandStrings = tail nonLabel
-    let command = head nonLabel
-
-    let size = commandSize command
-
-    let operands = parseOperands operandStrings (offset + size)
-    let instruction = Instruction labels command operands offset
-
-    let operandsSize = sum [operandSize o | o <- operands]
-
-    [instruction] ++ parseInstructionsInner (tail lines)
-                                            (offset + size + operandsSize)
-
-parseInstructions :: [[[Char]]] -> [Instruction]
-parseInstructions lines = parseInstructionsInner lines 0
-
-parseSectionsInner :: [[[Char]]] -> [Char] -> Int -> [Section]
-parseSectionsInner [] _ _ = []
-parseSectionsInner lines kind index = do
-    let broken = break (\s -> head s == "section") lines
-
-    let instructions = parseInstructions (fst broken)
-
-    let ret = Section kind instructions index
-
-    let nextSection = drop 1 ((head (snd broken)) !! 1)
-
-    let anyLeft = not (null (snd broken))
-    let remaining = case anyLeft of False -> []
-                                    True  -> tail (snd broken)
-
-    [ret] ++ parseSectionsInner remaining nextSection (succ index)
-
-parseSections :: [[[Char]]] -> [Section]
-parseSections lines = parseSectionsInner lines "base" 0
 
 isQuote :: [Char] -> Bool
 isQuote str =
@@ -289,28 +101,29 @@ stringToInt input = do
 
 renderMov :: Instruction -> [Int]
 renderMov inst = do
-    let prefix = case (text (head (operands inst))) of "rax" -> [0x48, 0xb8]
-                                                       "rbx" -> [0x48, 0xbb]
-                                                       "rcx" -> [0x48, 0xb9]
-                                                       "rdx" -> [0x48, 0xba]
-                                                       "rdi" -> [0x48, 0xbf]
-                                                       "rsi" -> [0x48, 0xbe]
-                                                       "rbp" -> [0x48, 0xbd]
-                                                       "rsp" -> [0x48, 0xbc]
-                                                       "r8"  -> [0x49, 0xb8]
-                                                       "r9"  -> [0x49, 0xb9]
-                                                       "r10" -> [0x49, 0xba]
-                                                       "r11" -> [0x49, 0xbb]
-                                                       "r12" -> [0x49, 0xbc]
-                                                       "r13" -> [0x49, 0xbd]
-                                                       "r14" -> [0x49, 0xbe]
-                                                       "r15" -> [0x49, 0xbf]
+    let prefix = case (text (head (operands inst))) of
+         "rax" -> [0x48, 0xb8]
+         "rbx" -> [0x48, 0xbb]
+         "rcx" -> [0x48, 0xb9]
+         "rdx" -> [0x48, 0xba]
+         "rdi" -> [0x48, 0xbf]
+         "rsi" -> [0x48, 0xbe]
+         "rbp" -> [0x48, 0xbd]
+         "rsp" -> [0x48, 0xbc]
+         "r8"  -> [0x49, 0xb8]
+         "r9"  -> [0x49, 0xb9]
+         "r10" -> [0x49, 0xba]
+         "r11" -> [0x49, 0xbb]
+         "r12" -> [0x49, 0xbc]
+         "r13" -> [0x49, 0xbd]
+         "r14" -> [0x49, 0xbe]
+         "r15" -> [0x49, 0xbf]
 
     let source = (operands inst) !! 1
     -- TODO: unhack. Check if there's a relocation instead.
     let parsed = case (stringToInt (text source)) of Nothing -> 0
                                                      Just i  -> i
-    prefix ++ intToBytes parsed
+    prefix ++ renderInt parsed
 
 toByteString :: [Int] -> BL.ByteString
 toByteString input = BL.pack (map fromIntegral input)
@@ -322,18 +135,8 @@ renderSection section = do
 renderStrTab :: [[Char]] -> [Int]
 renderStrTab strings = concat [(map ord s) ++ [0] | s <- strings]
 
--- TODO: generic
-intToBytes :: Int -> [Int]
-intToBytes src = reverse [fromIntegral o :: Int | o <- BL.unpack (encode src)]
-
-renderInt16 :: Int16 -> [Int]
-renderInt16 src = reverse [fromIntegral o :: Int | o <- BL.unpack (encode src)]
-
-renderInt32 :: Int32 -> [Int]
-renderInt32 src = reverse [fromIntegral o :: Int | o <- BL.unpack (encode src)]
-
-renderInt64 :: Int64 -> [Int]
-renderInt64 src = reverse [fromIntegral o :: Int | o <- BL.unpack (encode src)]
+renderInt :: (Binary a) => a -> [Int]
+renderInt src = reverse [fromIntegral o :: Int | o <- BL.unpack (encode src)]
 
 data SectionHeaderType = SHT_NULL |
                          SHT_PROGBITS |
@@ -381,16 +184,16 @@ linkSectionHeader all header =
 
 renderSectionHeader :: SectionHeader -> [Int]
 renderSectionHeader sh =
-    renderInt32 (sh_name sh) ++
-    renderInt32 (sectionHeaderTypeToInt32 (sh_type sh)) ++
-    renderInt64 (sectionHeaderFlagsToInt64 (sh_flags sh)) ++
-    renderInt64 (sh_addr sh) ++
-    renderInt64 (sh_offset sh) ++
-    renderInt64 (sh_size sh) ++
-    renderInt32 (sh_link sh) ++
-    renderInt32 (sh_info sh) ++
-    renderInt64 (sh_addralign sh) ++
-    renderInt64 (sh_entsize sh)
+    renderInt (sh_name sh) ++
+    renderInt (sectionHeaderTypeToInt32 (sh_type sh)) ++
+    renderInt (sectionHeaderFlagsToInt64 (sh_flags sh)) ++
+    renderInt (sh_addr sh) ++
+    renderInt (sh_offset sh) ++
+    renderInt (sh_size sh) ++
+    renderInt (sh_link sh) ++
+    renderInt (sh_info sh) ++
+    renderInt (sh_addralign sh) ++
+    renderInt (sh_entsize sh)
 
 getStrTabIndex :: [[Char]] -> [Char] -> Int
 getStrTabIndex strtab find = length (fst (break (== find) strtab))
@@ -469,7 +272,6 @@ createSectionHeader section =
     case (kind section) of
         "text" -> [createSectionHeaderInner section SHF_ALLOC_EXEC 0x10]
         "data" -> [createSectionHeaderInner section SHF_ALLOC_WRITE 0x4]
-        "base" -> []
 
 renderSectionData :: SectionHeader -> [Int]
 renderSectionData header =
@@ -521,13 +323,13 @@ renderSymTabInfo b t = [(shiftL (renderSymTabEntryBinding b) 4) +
 
 renderSymTabEntry :: [[Char]] -> SymTabEntry -> [Int]
 renderSymTabEntry strtab entry =
-    renderInt32 (fromIntegral (getStrTabOffset strtab (st_name entry))
+    renderInt (fromIntegral (getStrTabOffset strtab (st_name entry))
         :: Int32) ++
     renderSymTabInfo (symTabBinding entry) (symTabType entry) ++
     renderSymTabEntryVisibility (st_other entry) ++
-    renderInt16 (st_shndx entry) ++
-    renderInt64 (st_value entry) ++
-    renderInt64 (st_size entry)
+    renderInt (st_shndx entry) ++
+    renderInt (st_value entry) ++
+    renderInt (st_size entry)
 
 sectionsToSymTabInner :: [SectionHeader] -> Int16 -> [SymTabEntry]
 sectionsToSymTabInner [] _ = []
@@ -613,10 +415,10 @@ getRelocations sections = getRelocationsInner sections sections
 
 renderRelocation :: Relocation -> [Int]
 renderRelocation relo =
-    renderInt64 (fromIntegral (operandOffset (sourceOperand relo)) :: Int64) ++
-    renderInt32 (fromIntegral (sectionIndex (targetSection relo)) :: Int32) ++
-    renderInt32 (fromIntegral (sectionIndex (sourceSection relo)) :: Int32) ++
-    renderInt64 (fromIntegral (instructionOffset (targetInstruction relo)) ::
+    renderInt (fromIntegral (operandOffset (sourceOperand relo)) :: Int64) ++
+    renderInt (fromIntegral (sectionIndex (targetSection relo)) :: Int32) ++
+    renderInt (fromIntegral (sectionIndex (sourceSection relo)) :: Int32) ++
+    renderInt (fromIntegral (instructionOffset (targetInstruction relo)) ::
                  Int64)
 
 allLabels :: [Section] -> [[Char]]
@@ -646,37 +448,16 @@ reloHeaders relocations = do
         sh_entsize = 0x18
     }]
 
-extractGlobals :: [[[Char]]] -> ([[[Char]]], [[Char]])
-extractGlobals [] = ([], [])
-extractGlobals lines = do
-    let current = head lines
-
-    let isGlobal = (head current) == "global"
-
-    let retLine = case isGlobal of False -> [current]
-                                   True  -> []
-
-    let retGlobal = case isGlobal of False -> []
-                                     True  -> [current !! 1]
-
-    let inner = extractGlobals (tail lines)
-    (retLine ++ fst inner, retGlobal ++ snd inner)
-
 main :: IO ()
 main = do
     contents <- getContents
 
-    let sourceLines = lines contents
-    let processed = map processLine sourceLines
-    let merged = mergeLabels processed
-    let emptied = removeEmptyLines merged
-    let (extracted, globals) = extractGlobals emptied
-    let tempSections  = parseSections extracted
+    let (tempSections, globals) = parse contents
     let sections = calculateSectionOffsets tempSections
-    let sectionsAfterBase = (tail sections)
-    --putStr (showSections sectionsAfterBase)
 
-    let shRelo = reloHeaders (getRelocations sectionsAfterBase)
+    --putStr (showSections sections)
+
+    let shRelo = reloHeaders (getRelocations sections)
 
     let e_ehsize = 64 :: Int16
     let e_shentsize = 64 :: Int16
@@ -684,7 +465,7 @@ main = do
 
     let filename = "test2.asm"
 
-    let strtab = ["", filename] ++ allLabels sectionsAfterBase
+    let strtab = ["", filename] ++ allLabels sections
 
     let userSectionHeaders = concat (map createSectionHeader sections)
     let dynamicSh = userSectionHeaders ++ shRelo
@@ -716,7 +497,7 @@ main = do
     }
 
     let stSections = sectionsToSymTab userSectionHeaders
-    let stLabels = labelsToSymTab sectionsAfterBase globals
+    let stLabels = labelsToSymTab sections globals
 
     let symtab = [stNull, stFile] ++ stSections ++ stLabels
 
@@ -820,14 +601,14 @@ main = do
                   0x00, 0x00, 0x00, 0x00,
                   0x00, 0x00, 0x00, 0x00,          -- e_phoff
                   0x00, 0x00, 0x00, 0x00] ++
-                  renderInt64(e_shoff) ++          -- e_shoff
+                  renderInt e_shoff ++             -- e_shoff
                  [0x00, 0x00, 0x00, 0x00] ++       -- e_flags
-                  renderInt16(e_ehsize) ++         -- e_ehsize
+                  renderInt e_ehsize ++            -- e_ehsize
                  [0x00, 0x00,                      -- e_phentsize?
                   0x00, 0x00] ++                   -- e_phnum
-                  renderInt16(e_shentsize) ++      -- e_shentsize
-                  renderInt16(e_shnum) ++          -- e_shnum
-                  renderInt16(e_shstrndx) :: [Int] -- e_shstrndx
+                  renderInt e_shentsize ++         -- e_shentsize
+                  renderInt e_shnum ++             -- e_shnum
+                  renderInt e_shstrndx :: [Int]    -- e_shstrndx
 
     let renderedSectionHeaders = map renderSectionHeader headers4
 
