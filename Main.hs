@@ -182,6 +182,7 @@ calculateInstructionOffsets instructions offset = do
     let calculator = case command current of "mov"     -> calculateMovOffsets
                                              "syscall" -> calculateSysCallOffsets
                                              "db"      -> calculateDbOffsets
+                                             x         -> error ("Unrecognized command: " ++ show x)
 
     let ret = calculator current offset
 
@@ -606,6 +607,28 @@ allLabels sections = do
     let allInstructions = concat [instructions s | s <- sections]
     concat [labels i | i <- allInstructions]
 
+reloHeaders :: [Relocation] -> [SectionHeader]
+reloHeaders [] = []
+reloHeaders relocations = do
+    let rendered = concat (map renderRelocation relocations)
+
+    [SectionHeader {
+        sectionName = ".rela.text",
+        sectionData = rendered,
+        sectionPadding = 0,
+        sectionLinkName = ".symtab",
+        sh_name = 0,
+        sh_type = SHT_RELA,
+        sh_flags = SHF_NONE,
+        sh_addr = 0,
+        sh_offset = 0,
+        sh_size = fromIntegral (length rendered) :: Int64,
+        sh_link = 0,
+        sh_info = 0x2, -- TODO ??
+        sh_addralign = 0x4,
+        sh_entsize = 0x18
+    }]
+
 main :: IO ()
 main = do
     contents <- getContents
@@ -619,26 +642,8 @@ main = do
     let sectionsAfterBase = (tail sections)
     --putStr (showSections sectionsAfterBase)
 
-    let relocations = getRelocations sectionsAfterBase
-    let renderedReloTab = concat (map renderRelocation relocations)
-
-    let shRelo = SectionHeader {
-        sectionName = ".rela.text",
-        sectionData = renderedReloTab,
-        sectionPadding = 0,
-        sectionLinkName = ".symtab",
-        sh_name = 0,
-        sh_type = SHT_RELA,
-        sh_flags = SHF_NONE,
-        sh_addr = 0,
-        sh_offset = 0,
-        sh_size = fromIntegral (length renderedReloTab) :: Int64,
-        sh_link = 0,
-        --sh_info = fromIntegral (length relocations) :: Int32,
-        sh_info = 0x2, -- TODO ??
-        sh_addralign = 0x4,
-        sh_entsize = 0x18
-    }
+    let shRelo = reloHeaders (getRelocations sectionsAfterBase)
+    let dynamicSh = shRelo
 
     let e_ehsize = 64 :: Int16
     let e_shentsize = 64 :: Int16
@@ -653,8 +658,7 @@ main = do
                     ".text",
                     ".shstrtab",
                     ".symtab",
-                    ".strtab",
-                    ".rela.text"]
+                    ".strtab"] ++ [sectionName s | s <- dynamicSh]
 
     let renderedStrTab = renderStrTab(strtab)
     let renderedShStrTab = renderStrTab(shstrtab)
@@ -731,7 +735,7 @@ main = do
         sh_info = 0,
         sh_addralign = 0x1,
         sh_entsize = 0
-    }, shRelo]
+    }] ++ dynamicSh
 
     let e_ehsize = 64 :: Int16
     let e_shentsize = 64 :: Int16
