@@ -181,6 +181,9 @@ linkSectionHeader all header =
                                 (sectionLinkName header)) :: Int32
     }
 
+linkSectionHeaders :: [SectionHeader] -> [SectionHeader]
+linkSectionHeaders sections = map (linkSectionHeader sections) sections
+
 renderSectionHeader :: SectionHeader -> [Int]
 renderSectionHeader sh =
     renderInt (sh_name sh) ++
@@ -212,9 +215,9 @@ getStrTabOffsetInner strtab find offset = do
 getStrTabOffset :: [[Char]] -> [Char] -> Int32
 getStrTabOffset strtab find = getStrTabOffsetInner strtab find 0
 
-calculateSectionHeaderOffsets :: [SectionHeader] -> Int -> [SectionHeader]
-calculateSectionHeaderOffsets [] _ = []
-calculateSectionHeaderOffsets headers offset = do
+calculateSectionHeaderOffsets :: Int -> [SectionHeader] -> [SectionHeader]
+calculateSectionHeaderOffsets _ [] = []
+calculateSectionHeaderOffsets offset headers = do
     let current = head headers
     let endOfData = offset + (fromIntegral (sh_size current) :: Int)
     let nextOffset = align endOfData 16
@@ -224,10 +227,10 @@ calculateSectionHeaderOffsets headers offset = do
         sh_offset = fromIntegral offset :: Int64
     }
 
-    [ret] ++ calculateSectionHeaderOffsets (tail headers) nextOffset
+    [ret] ++ calculateSectionHeaderOffsets nextOffset (tail headers)
 
-getSectionHeaderNameOffsets :: [SectionHeader] -> [[Char]] -> [SectionHeader]
-getSectionHeaderNameOffsets headers shstrtab =
+getSectionHeaderNameOffsets :: [[Char]] -> [SectionHeader] -> [SectionHeader]
+getSectionHeaderNameOffsets shstrtab headers =
     [sh { sh_name = getStrTabOffset shstrtab (sectionName sh) } |
      sh <- headers]
 
@@ -456,9 +459,9 @@ main = do
 
     let shRelo = reloHeaders (getRelocations sections)
 
-    let e_ehsize = 64 :: Int16
+    let e_ehsize    = 64 :: Int16
     let e_shentsize = 64 :: Int16
-    let e_shoff = 64 :: Int64
+    let e_shoff     = 64 :: Int64
 
     let filename = "test2.asm"
 
@@ -474,23 +477,23 @@ main = do
     let renderedShStrTab = renderStrTab(shstrtab)
 
     let stNull = SymTabEntry {
-        st_name  = "",
-        symTabType  = STT_NOTYPE,
+        st_name       = "",
+        symTabType    = STT_NOTYPE,
         symTabBinding = STB_LOCAL,
-        st_other = STV_DEFAULT,
-        st_shndx = 0,
-        st_value = 0,
-        st_size  = 0
+        st_other      = STV_DEFAULT,
+        st_shndx      = 0,
+        st_value      = 0,
+        st_size       = 0
     }
 
     let stFile = SymTabEntry {
-        st_name  = filename,
-        symTabType  = STT_FILE,
+        st_name       = filename,
+        symTabType    = STT_FILE,
         symTabBinding = STB_LOCAL,
-        st_other = STV_DEFAULT,
-        st_shndx = 65521,
-        st_value = 0,
-        st_size  = 0
+        st_other      = STV_DEFAULT,
+        st_shndx      = 65521,
+        st_value      = 0,
+        st_size       = 0
     }
 
     let stSections = sectionsToSymTab userSectionHeaders
@@ -500,7 +503,22 @@ main = do
 
     let renderedSymTab = concat (map (renderSymTabEntry strtab) symtab)
 
-    let headers = userSectionHeaders ++ [SectionHeader {
+    let headers = [SectionHeader {
+        sectionName = "",
+        sectionData = [],
+        sectionPadding = 0,
+        sectionLinkName = "",
+        sh_name = 0,
+        sh_type = SHT_NULL,
+        sh_flags = SHF_NONE,
+        sh_addr = 0,
+        sh_offset = 0,
+        sh_size = 0,
+        sh_link = 0,
+        sh_info = 0,
+        sh_addralign = 0,
+        sh_entsize = 0
+    }] ++ userSectionHeaders ++ [SectionHeader {
         sectionName = ".shstrtab",
         sectionData = renderedShStrTab,
         sectionPadding = 0,
@@ -547,70 +565,46 @@ main = do
         sh_entsize = 0
     }] ++ shRelo
 
-    let e_ehsize = 64 :: Int16
-    let e_shentsize = 64 :: Int16
-    let e_shoff = 64 :: Int64
+    let firstOffset = (fromIntegral e_ehsize :: Int) + (length headers) *
+                      (fromIntegral e_shentsize :: Int)
 
-    -- Calculate first section offset
-    -- TODO: there must be a way to avoid 3 casts here?
-    let shLen = (succ (length headers)) * (fromIntegral e_shentsize :: Int)
-    let firstOffset = (fromIntegral e_ehsize :: Int) + shLen
-    let headers2 = calculateSectionHeaderOffsets headers
-                   (fromIntegral firstOffset :: Int)
+    let headers2 = getSectionHeaderNameOffsets shstrtab .
+                   linkSectionHeaders .
+                   calculateSectionHeaderOffsets firstOffset $
+                   headers
 
-    -- Prepend null section header
-    let headers3 = [SectionHeader {
-        sectionName = "",
-        sectionData = [],
-        sectionPadding = 0,
-        sectionLinkName = "",
-        sh_name = 0,
-        sh_type = SHT_NULL,
-        sh_flags = SHF_NONE,
-        sh_addr = 0,
-        sh_offset = 0,
-        sh_size = 0,
-        sh_link = 0,
-        sh_info = 0,
-        sh_addralign = 0,
-        sh_entsize = 0
-    }] ++ headers2
-
-    let headers3a = map (linkSectionHeader headers3) headers3
-    let headers4 = getSectionHeaderNameOffsets headers3a shstrtab
-
-    let e_shnum = fromIntegral (length headers3) :: Int16
-    let e_shstrndx = fromIntegral (getSectionHeaderIndex headers4 ".shstrtab")
+    let e_shnum = fromIntegral (length headers) :: Int16
+    let e_shstrndx = fromIntegral (getSectionHeaderIndex headers2 ".shstrtab")
                                   :: Int16
 
-    let header = [0x7f, 0x45, 0x4c, 0x46,          -- magic
-                  0x02,                            -- 64-bit
-                  0x01,                            -- little endian
-                  0x01,                            -- ELF version
-                  0x00,                            -- System V ABI
-                  0x00,                            -- ABI version
+    let header = [0x7f, 0x45, 0x4c, 0x46,                      -- magic
+                  0x02,                                        -- 64-bit
+                  0x01,                                        -- little endian
+                  0x01,                                        -- ELF version
+                  0x00,                                        -- System V ABI
+                  0x00,                                        -- ABI version
                   0x00, 0x00, 0x00, 0x00,
-                  0x00, 0x00, 0x00,                -- padding
-                  0x01, 0x00,                      -- relocatable
-                  0x3e, 0x00,                      -- e_machine
-                  0x01, 0x00, 0x00, 0x00,          -- e_version
-                  0x00, 0x00, 0x00, 0x00,          -- entry point?
+                  0x00, 0x00, 0x00,                            -- padding
+                  0x01, 0x00,                                  -- relocatable
+                  0x3e, 0x00,                                  -- e_machine
+                  0x01, 0x00, 0x00, 0x00,                      -- e_version
+                  0x00, 0x00, 0x00, 0x00,                      -- entry point?
                   0x00, 0x00, 0x00, 0x00,
-                  0x00, 0x00, 0x00, 0x00,          -- e_phoff
+                  0x00, 0x00, 0x00, 0x00,                      -- e_phoff
                   0x00, 0x00, 0x00, 0x00] ++
-                  renderInt e_shoff ++             -- e_shoff
-                 [0x00, 0x00, 0x00, 0x00] ++       -- e_flags
-                  renderInt e_ehsize ++            -- e_ehsize
-                 [0x00, 0x00,                      -- e_phentsize?
-                  0x00, 0x00] ++                   -- e_phnum
-                  renderInt e_shentsize ++         -- e_shentsize
-                  renderInt e_shnum ++             -- e_shnum
-                  renderInt e_shstrndx :: [Int]    -- e_shstrndx
+                  renderInt e_shoff ++                         -- e_shoff
+                 [0x00, 0x00, 0x00, 0x00] ++                   -- e_flags
+                  renderInt e_ehsize ++                        -- e_ehsize
+                 [0x00, 0x00,                                  -- e_phentsize?
+                  0x00, 0x00] ++                               -- e_phnum
+                  renderInt e_shentsize ++                     -- e_shentsize
+                  renderInt e_shnum ++                         -- e_shnum
+                  renderInt e_shstrndx :: [Int]                -- e_shstrndx
 
-    let renderedSectionHeaders = map renderSectionHeader headers4
+    let renderedSectionHeaders = map renderSectionHeader headers2
 
     let rendered = header ++
                    (concat renderedSectionHeaders) ++
-                   renderSectionsData(headers4)
+                   renderSectionsData(headers2)
 
     BL.putStr (toByteString rendered)
