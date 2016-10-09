@@ -7,7 +7,6 @@ import Data.Bits
 import Data.Binary
 import Data.Binary.Put
 import qualified Data.ByteString.Lazy as BL
-import Debug.Trace (trace)
 
 import Parser
 
@@ -455,8 +454,6 @@ main = do
     let (tempSections, globals) = parse contents
     let sections = calculateSectionOffsets tempSections
 
-    --putStr (showSections sections)
-
     let shRelo = reloHeaders (getRelocations sections)
 
     let e_ehsize = 64 :: Int16
@@ -616,23 +613,4 @@ main = do
                    (concat renderedSectionHeaders) ++
                    renderSectionsData(headers4)
 
-    --putStr "\n"
     BL.putStr (toByteString rendered)
-
-showSection :: Section -> [Char]
-showSection s = "[" ++ (kind s) ++ "]\n" ++
-                (intercalate "\n" (map showInstruction (instructions s)))
-
-showSections :: [Section] -> [Char]
-showSections s = "--SECTIONS:-----------------------\n\n" ++
-                 (intercalate "\n" (map showSection s))
-
-showInstruction :: Instruction -> [Char]
-showInstruction i =
-    (intercalate "," (labels i)) ++
-    (if (null (labels i)) then "" else ":\n") ++
-    "  " ++ (show (instructionOffset i)) ++ ": " ++ (command i) ++ "\n  " ++
-    (intercalate "\n  " (map showOperand (operands i))) ++ "\n"
-
-showOperand :: Operand -> [Char]
-showOperand o = show (operandOffset o) ++ ": " ++ text o
