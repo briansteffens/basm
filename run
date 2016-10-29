@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+
+SRC="examples/${2}.asm"
+
+case "$1" in
+    nasm)
+        nasm -f elf64 -O0 $SRC -o nasm.o
+        ld nasm.o -o nasm.a
+        ./nasm.a
+        ;;
+    basm)
+        cabal build
+        cat $SRC | dist/build/basm/basm > basm.o
+        ld basm.o -o basm.a
+        ./basm.a
+        ;;
+esac
+
+echo $?
