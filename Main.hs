@@ -432,12 +432,17 @@ replaceEqusOperands opers allSections = do
     let current = head opers
     let operText = text current
     let labelSearch = findLabel allSections (text current)
+
     let newText = case labelSearch of
-                       Nothing  -> operText
-                       Just res -> text (head (operands (snd res)))
+                   Nothing  -> operText
+                   Just res -> case command (snd res) of
+                                "equ" -> text (head (operands (snd res)))
+                                _     -> operText
+
     let ret = current {
         text = newText
     }
+
     [ret] ++ replaceEqusOperands (tail opers) allSections
 
 replaceEqusSection :: [Instruction] -> [Section] -> [Instruction]
