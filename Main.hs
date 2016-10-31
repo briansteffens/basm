@@ -37,6 +37,12 @@ calculateDbOffsets inst offset = do
         instructionOffset = offset
     }
 
+calculateEquOffsets :: Instruction -> Int -> Instruction
+calculateEquOffsets inst offset = do
+    inst {
+        instructionOffset = offset
+    }
+
 calculateInstructionOffsets :: [Instruction] -> Int -> [Instruction]
 calculateInstructionOffsets [] _ = []
 calculateInstructionOffsets instructions offset = do
@@ -46,6 +52,7 @@ calculateInstructionOffsets instructions offset = do
          "mov"     -> calculateMovOffsets
          "syscall" -> calculateSysCallOffsets
          "db"      -> calculateDbOffsets
+         "equ"     -> calculateEquOffsets
          x         -> error ("Unrecognized command: " ++ show x)
 
     let ret = calculator current offset
@@ -80,11 +87,25 @@ renderDbOperand operand = do
 renderDb :: Instruction -> [Int]
 renderDb inst = concat (map renderDbOperand (operands inst))
 
+renderEqu :: Instruction -> [Int]
+renderEqu inst = do
+    let opers = operands inst
+    let oper = case (length opers) of
+         1 -> text (head opers)
+         _ -> error("Invalid number of operands for equ.")
+
+    case (take 2 oper) == "$-" of
+        True  -> []
+        False -> case stringToInt oper of
+                      Just i  -> renderInt i
+                      Nothing -> error("Invalid integer in equ.")
+
 renderInstruction :: Instruction -> [Int]
 renderInstruction inst = do
     case (command inst) of "syscall" -> (renderSysCall inst)
                            "mov"     -> (renderMov inst)
                            "db"      -> (renderDb inst)
+                           "equ"     -> (renderEqu inst)
 
 renderSysCall :: Instruction -> [Int]
 renderSysCall inst = [0x0f, 0x05]
@@ -423,6 +444,42 @@ renderRelocation relo =
     renderInt (fromIntegral (instructionOffset (targetInstruction relo)) ::
                  Int64)
 
+replaceEqusOperands :: [Operand] -> [Section] -> [Operand]
+replaceEqusOperands [] _ = []
+replaceEqusOperands opers allSections = do
+    let current = head opers
+    let operText = text current
+    let labelSearch = findLabel allSections (text current)
+    let newText = case labelSearch of
+                       Nothing  -> operText
+                       Just res -> text (head (operands (snd res)))
+    let ret = current {
+        text = newText
+    }
+    [ret] ++ replaceEqusOperands (tail opers) allSections
+
+replaceEqusSection :: [Instruction] -> [Section] -> [Instruction]
+replaceEqusSection [] allSections = []
+replaceEqusSection instructions allSections = do
+    let current = head instructions
+    let ret = current {
+        operands = replaceEqusOperands (operands current) allSections
+    }
+
+    [ret] ++ replaceEqusSection (tail instructions) allSections
+
+replaceEqus :: [Section] -> [Section] -> [Section]
+replaceEqus [] _ = []
+replaceEqus remainingSections allSections = do
+    let current = head remainingSections
+
+    let ret = current {
+        instructions = replaceEqusSection (instructions current) allSections
+    }
+
+    let inner = replaceEqus (tail remainingSections) allSections
+    [ret] ++ inner
+
 allLabels :: [Section] -> [[Char]]
 allLabels sections = do
     let allInstructions = concat [instructions s | s <- sections]
@@ -455,7 +512,8 @@ main = do
     contents <- getContents
 
     let (tempSections, globals) = parse contents
-    let sections = calculateSectionOffsets tempSections
+    let sectionsTemp = calculateSectionOffsets tempSections
+    let sections = replaceEqus sectionsTemp sectionsTemp
 
     let shRelo = reloHeaders (getRelocations sections)
 
