@@ -25,23 +25,8 @@ calculateMovOffsets inst offset = do
         }]
     }
 
-calculateSysCallOffsets :: Instruction -> Int -> Instruction
-calculateSysCallOffsets inst offset = do
-    inst {
-        instructionOffset = offset
-    }
-
-calculateDbOffsets :: Instruction -> Int -> Instruction
-calculateDbOffsets inst offset = do
-    inst {
-        instructionOffset = offset
-    }
-
-calculateEquOffsets :: Instruction -> Int -> Instruction
-calculateEquOffsets inst offset = do
-    inst {
-        instructionOffset = offset
-    }
+calculateDefaultOffsets :: Instruction -> Int -> Instruction
+calculateDefaultOffsets inst offset = inst { instructionOffset = offset }
 
 calculateInstructionOffsets :: [Instruction] -> Int -> [Instruction]
 calculateInstructionOffsets [] _ = []
@@ -49,11 +34,8 @@ calculateInstructionOffsets instructions offset = do
     let current = head instructions
 
     let calculator = case command current of
-         "mov"     -> calculateMovOffsets
-         "syscall" -> calculateSysCallOffsets
-         "db"      -> calculateDbOffsets
-         "equ"     -> calculateEquOffsets
-         x         -> error ("Unrecognized command: " ++ show x)
+         "mov" -> calculateMovOffsets
+         _     -> calculateDefaultOffsets
 
     let ret = calculator current offset
 
