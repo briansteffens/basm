@@ -40,7 +40,7 @@ calculateInstructionOffsets instructions offset = do
     let ret = calculator current offset
 
     let size = (commandSize (command current)) +
-               sum [operandSize o | o <- operands ret]
+               sum (map operandSize (operands ret))
 
     [ret] ++ calculateInstructionOffsets (tail instructions) (offset + size)
 
@@ -54,11 +54,9 @@ calculateSectionOffsets sections = do
     [ret] ++ calculateSectionOffsets (tail sections)
 
 isQuote :: [Char] -> Bool
-isQuote str =
-    case (length str) of
-        0 -> False
-        1 -> False
-        _ -> (head str) == '"' && (last str) == '"'
+isQuote []  = False
+isQuote [_] = False
+isQuote str = (head str) == '"' && (last str) == '"'
 
 renderDbOperand :: Operand -> [Int]
 renderDbOperand operand = do
@@ -71,39 +69,35 @@ renderDb inst = concat (map renderDbOperand (operands inst))
 
 renderEqu :: Instruction -> [Int]
 renderEqu inst = do
-    let opers = operands inst
-    let oper = case (length opers) of
-         1 -> text (head opers)
-         _ -> error("Invalid number of operands for equ.")
+    let oper = case operands inst of
+         [o] -> text o
+         _   -> error("Invalid number of operands for equ.")
 
-    case (take 2 oper) == "$-" of
-        True  -> []
-        False -> case stringToInt oper of
-                      Just i  -> renderInt i
-                      Nothing -> error("Invalid integer in equ.")
+    if (take 2 oper) == "$-" then []
+        else case stringToInt oper of
+              Just i  -> renderInt i
+              Nothing -> error("Invalid integer in equ.")
 
 renderInstruction :: Instruction -> [Int]
 renderInstruction inst = do
-    case (command inst) of "syscall" -> (renderSysCall inst)
-                           "mov"     -> (renderMov inst)
-                           "db"      -> (renderDb inst)
-                           "equ"     -> (renderEqu inst)
+    case (command inst) of
+         "syscall" -> renderSysCall inst
+         "mov"     -> renderMov inst
+         "db"      -> renderDb inst
+         "equ"     -> renderEqu inst
 
 renderSysCall :: Instruction -> [Int]
-renderSysCall inst = [0x0f, 0x05]
+renderSysCall _ = [0x0f, 0x05]
 
 stringToInt :: [Char] -> Maybe Int
 stringToInt input = do
-    let parsed = reads input :: [(Int, [Char])]
-    case parsed of
+    case reads input :: [(Int, [Char])] of
         [] -> Nothing
-        x  -> case (length (snd (head x))) of
-            0 -> Just (fst (head x))
-            _ -> Nothing
+        x  -> if snd (head x) == [] then Just (fst (head x)) else Nothing
 
 renderMov :: Instruction -> [Int]
 renderMov inst = do
-    let prefix = case (text (head (operands inst))) of
+    let prefix = case text (head (operands inst)) of
          "rax" -> [0x48, 0xb8]
          "rbx" -> [0x48, 0xbb]
          "rcx" -> [0x48, 0xb9]
@@ -123,19 +117,21 @@ renderMov inst = do
 
     let source = (operands inst) !! 1
     -- TODO: unhack. Check if there's a relocation instead.
-    let parsed = case (stringToInt (text source)) of Nothing -> 0
-                                                     Just i  -> i
+    let parsed = case stringToInt (text source) of Nothing -> 0
+                                                   Just i  -> i
     prefix ++ renderInt parsed
 
 toByteString :: [Int] -> BL.ByteString
 toByteString input = BL.pack (map fromIntegral input)
 
 renderSection :: Section -> [Int]
-renderSection section = do
-    concat (map renderInstruction (instructions section))
+renderSection section = concat (map renderInstruction (instructions section))
+
+renderStrTabEntry :: [Char] -> [Int]
+renderStrTabEntry string = map ord string ++ [0]
 
 renderStrTab :: [[Char]] -> [Int]
-renderStrTab strings = concat [(map ord s) ++ [0] | s <- strings]
+renderStrTab strings = concat (map renderStrTabEntry strings)
 
 renderInt :: (Binary a) => a -> [Int]
 renderInt src = reverse [fromIntegral o :: Int | o <- BL.unpack (encode src)]
@@ -147,18 +143,18 @@ data SectionHeaderType = SHT_NULL |
                          SHT_RELA
 
 sectionHeaderTypeToInt32 :: SectionHeaderType -> Int32
-sectionHeaderTypeToInt32 sht = case sht of SHT_NULL     -> 0
-                                           SHT_PROGBITS -> 1
-                                           SHT_SYMTAB   -> 2
-                                           SHT_STRTAB   -> 3
-                                           SHT_RELA     -> 4
+sectionHeaderTypeToInt32 SHT_NULL     = 0
+sectionHeaderTypeToInt32 SHT_PROGBITS = 1
+sectionHeaderTypeToInt32 SHT_SYMTAB   = 2
+sectionHeaderTypeToInt32 SHT_STRTAB   = 3
+sectionHeaderTypeToInt32 SHT_RELA     = 4
 
 data SectionHeaderFlags = SHF_NONE | SHF_ALLOC_WRITE | SHF_ALLOC_EXEC -- TODO
 
 sectionHeaderFlagsToInt64 :: SectionHeaderFlags -> Int64
-sectionHeaderFlagsToInt64 shf = case shf of SHF_NONE        -> 0  -- TODO
-                                            SHF_ALLOC_EXEC  -> 6
-                                            SHF_ALLOC_WRITE -> 3
+sectionHeaderFlagsToInt64 SHF_NONE        = 0
+sectionHeaderFlagsToInt64 SHF_ALLOC_EXEC  = 6
+sectionHeaderFlagsToInt64 SHF_ALLOC_WRITE = 3
 
 data SectionHeader = SectionHeader {
     sectionName     :: [Char],
@@ -204,16 +200,14 @@ getStrTabIndex :: [[Char]] -> [Char] -> Int
 getStrTabIndex strtab find = length (fst (break (== find) strtab))
 
 getStrTabOffsetInner :: [[Char]] -> [Char] -> Int32 -> Int32
-getStrTabOffsetInner [] find _ = error ("strtab entry not found: " ++
-                                        (show find))
+getStrTabOffsetInner [] find _ = error ("strtab entry missing: " ++ show find)
 getStrTabOffsetInner strtab find offset = do
     let current = head strtab
 
     let inner = getStrTabOffsetInner (tail strtab) find
                 (offset + (fromIntegral (length current) :: Int32) + 1)
 
-    case current == find of True  -> offset
-                            False -> inner
+    if current == find then offset else inner
 
 getStrTabOffset :: [[Char]] -> [Char] -> Int32
 getStrTabOffset strtab find = getStrTabOffsetInner strtab find 0
@@ -239,22 +233,23 @@ getSectionHeaderNameOffsets shstrtab headers =
 
 -- Align value to the nearest alignment by rounding up
 align :: Int -> Int -> Int
-align value alignment =
-    case (mod value alignment) of 0 -> value
-                                  r -> value + (alignment - r)
+align value alignment
+    | r == 0    = value
+    | otherwise = value + (alignment - r)
+    where r = mod value alignment
 
 -- Find index of a section header by name
 getSectionHeaderIndex :: [SectionHeader] -> [Char] -> Int
 getSectionHeaderIndex headers name = do
     let broken = break (\s -> (sectionName s) == name) headers
-    case length (snd (broken)) of 0 -> 0
-                                  _ -> length (fst broken)
+    case snd broken of [] -> 0
+                       _  -> length (fst broken)
 
 -- Helper function for creating section headers of various types
-createSectionHeaderInner :: Section -> SectionHeaderFlags -> Int64 ->
-                            SectionHeader
-createSectionHeaderInner section flags addralign = do
+createSectionHeader :: Section -> SectionHeader
+createSectionHeader section = do
     let content = renderSection section
+
     SectionHeader {
         sectionName = "." ++ kind section,
         sectionData = content,
@@ -262,27 +257,23 @@ createSectionHeaderInner section flags addralign = do
         sectionLinkName = "",
         sh_name = 0,
         sh_type = SHT_PROGBITS,
-        sh_flags = flags,
         sh_addr = 0,
         sh_offset = 0,
         sh_size = fromIntegral (length content) :: Int64,
         sh_link = 0,
         sh_info = 0,
-        sh_addralign = addralign,
-        sh_entsize = 0
+        sh_entsize = 0,
+        sh_flags = case kind section of "text" -> SHF_ALLOC_EXEC
+                                        "data" -> SHF_ALLOC_WRITE,
+        sh_addralign = case kind section of "text" -> 0x10
+                                            "data" -> 0x4
     }
-
-createSectionHeader :: Section -> [SectionHeader]
-createSectionHeader section =
-    case (kind section) of
-        "text" -> [createSectionHeaderInner section SHF_ALLOC_EXEC 0x10]
-        "data" -> [createSectionHeaderInner section SHF_ALLOC_WRITE 0x4]
 
 renderSectionData :: SectionHeader -> [Int]
 renderSectionData header =
-    case (length (sectionData header)) of
-        0 -> []
-        _ -> (sectionData header) ++ replicate (sectionPadding header) 0x00
+    if length (sectionData header) == 0
+        then []
+        else sectionData header ++ replicate (sectionPadding header) 0x00
 
 renderSectionsData :: [SectionHeader] -> [Int]
 renderSectionsData [] = []
@@ -291,26 +282,20 @@ renderSectionsData headers = concat (map renderSectionData headers)
 data SymTabEntryType = STT_NOTYPE | STT_SECTION | STT_FILE
 
 renderSymTabEntryType :: SymTabEntryType -> Int
-renderSymTabEntryType t =
-    case t of
-        STT_NOTYPE  -> 0
-        STT_SECTION -> 3
-        STT_FILE    -> 4
+renderSymTabEntryType STT_NOTYPE  = 0
+renderSymTabEntryType STT_SECTION = 3
+renderSymTabEntryType STT_FILE    = 4
 
 data SymTabEntryVisibility = STV_DEFAULT
 
 renderSymTabEntryVisibility :: SymTabEntryVisibility -> [Int]
-renderSymTabEntryVisibility v =
-    [case v of
-        STV_DEFAULT -> 0]
+renderSymTabEntryVisibility STV_DEFAULT = [0]
 
 data SymTabEntryBinding = STB_LOCAL | STB_GLOBAL
 
 renderSymTabEntryBinding :: SymTabEntryBinding -> Int
-renderSymTabEntryBinding b =
-    case b of
-        STB_LOCAL  -> 0
-        STB_GLOBAL -> 1
+renderSymTabEntryBinding STB_LOCAL  = 0
+renderSymTabEntryBinding STB_GLOBAL = 1
 
 data SymTabEntry = SymTabEntry {
     symTabType    :: SymTabEntryType,
@@ -364,8 +349,8 @@ labelsToSymTabInner sections globals index = do
         st_name  = fst label,
         symTabType = STT_NOTYPE,
         st_other = STV_DEFAULT,
-        symTabBinding = case elem (fst label) globals of False -> STB_LOCAL
-                                                         True  -> STB_GLOBAL,
+        symTabBinding = if elem (fst label) globals then STB_GLOBAL
+                        else STB_LOCAL,
         st_shndx = index,
         st_value = fromIntegral (snd label) :: Int64,
         st_size  = 0
@@ -389,28 +374,27 @@ findLabel sections labelName = do
     let section = head sections
 
     let broken = break (\i -> elem labelName (labels i)) (instructions section)
-    let found = length (snd broken) > 0
 
-    case length (snd broken) > 0 of
-        True  -> Just (section, head (snd broken))
-        False -> findLabel (tail sections) labelName
+    if length(snd broken) == 0
+        then findLabel (tail sections) labelName
+        else Just (section, head (snd broken))
 
 getRelocation :: [Section] -> Section -> Operand -> [Relocation]
 getRelocation sections section operand = do
     case findLabel sections (text operand) of
-        Nothing -> []
-        Just (s, i)  -> [Relocation {
-                            sourceSection     = section,
-                            sourceOperand     = operand,
-                            targetSection     = s,
-                            targetInstruction = i
-                        }]
+        Nothing     -> []
+        Just (s, i) -> [Relocation {
+                           sourceSection     = section,
+                           sourceOperand     = operand,
+                           targetSection     = s,
+                           targetInstruction = i
+                       }]
 
 getRelocationsInner :: [Section] -> [Section] -> [Relocation]
 getRelocationsInner [] _ = []
 getRelocationsInner remainingSections allSections = do
     let section = head remainingSections
-    let allOperands = concat [operands i | i <- instructions section]
+    let allOperands = concat (map operands (instructions section))
 
     let ret = concat (map (getRelocation allSections section) allOperands)
     ret ++ getRelocationsInner (tail remainingSections) allSections
@@ -431,46 +415,37 @@ replaceEqusOperands [] _ = []
 replaceEqusOperands opers allSections = do
     let current = head opers
     let operText = text current
-    let labelSearch = findLabel allSections (text current)
 
-    let newText = case labelSearch of
+    let newText = case findLabel allSections operText of
                    Nothing  -> operText
                    Just res -> case command (snd res) of
                                 "equ" -> text (head (operands (snd res)))
                                 _     -> operText
 
-    let ret = current {
+    [current {
         text = newText
-    }
-
-    [ret] ++ replaceEqusOperands (tail opers) allSections
+    }] ++ replaceEqusOperands (tail opers) allSections
 
 replaceEqusSection :: [Instruction] -> [Section] -> [Instruction]
 replaceEqusSection [] allSections = []
 replaceEqusSection instructions allSections = do
     let current = head instructions
-    let ret = current {
-        operands = replaceEqusOperands (operands current) allSections
-    }
 
-    [ret] ++ replaceEqusSection (tail instructions) allSections
+    [current {
+        operands = replaceEqusOperands (operands current) allSections
+    }] ++ replaceEqusSection (tail instructions) allSections
 
 replaceEqus :: [Section] -> [Section] -> [Section]
 replaceEqus [] _ = []
 replaceEqus remainingSections allSections = do
     let current = head remainingSections
 
-    let ret = current {
+    [current {
         instructions = replaceEqusSection (instructions current) allSections
-    }
-
-    let inner = replaceEqus (tail remainingSections) allSections
-    [ret] ++ inner
+    }] ++ replaceEqus (tail remainingSections) allSections
 
 allLabels :: [Section] -> [[Char]]
-allLabels sections = do
-    let allInstructions = concat [instructions s | s <- sections]
-    concat [labels i | i <- allInstructions]
+allLabels sections = concat (map labels (concat (map instructions sections)))
 
 reloHeaders :: [Relocation] -> [SectionHeader]
 reloHeaders [] = []
@@ -508,15 +483,15 @@ main = do
     let e_shentsize = 64 :: Int16
     let e_shoff     = 64 :: Int64
 
-    let filename = "test2.asm"
+    let filename = "test2.asm" -- TODO: dynamic
 
     let strtab = ["", filename] ++ allLabels sections
 
-    let userSectionHeaders = concat (map createSectionHeader sections)
+    let userSectionHeaders = map createSectionHeader sections
     let dynamicSh = userSectionHeaders ++ shRelo
 
     let shstrtab = ["", ".shstrtab", ".symtab", ".strtab"] ++
-                   [sectionName s | s <- dynamicSh]
+                   map sectionName dynamicSh
 
     let renderedStrTab = renderStrTab(strtab)
     let renderedShStrTab = renderStrTab(shstrtab)
@@ -649,7 +624,7 @@ main = do
     let renderedSectionHeaders = map renderSectionHeader headers2
 
     let rendered = header ++
-                   (concat renderedSectionHeaders) ++
-                   renderSectionsData(headers2)
+                   concat renderedSectionHeaders ++
+                   renderSectionsData headers2
 
     BL.putStr (toByteString rendered)
