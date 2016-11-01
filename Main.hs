@@ -68,15 +68,7 @@ renderDb :: Instruction -> [Int]
 renderDb inst = concat (map renderDbOperand (operands inst))
 
 renderEqu :: Instruction -> [Int]
-renderEqu inst = do
-    let oper = case operands inst of
-         [o] -> text o
-         _   -> error("Invalid number of operands for equ.")
-
-    if (take 2 oper) == "$-" then []
-        else case stringToInt oper of
-              Just i  -> renderInt i
-              Nothing -> error("Invalid integer in equ.")
+renderEqu inst = [] -- equ should not render any bytes
 
 renderInstruction :: Instruction -> [Int]
 renderInstruction inst = do
