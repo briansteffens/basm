@@ -7,6 +7,7 @@ import Data.Bits
 import Data.Binary
 import Data.Binary.Put
 import qualified Data.ByteString.Lazy as BL
+import Debug.Trace
 
 import Parser
 
@@ -25,8 +26,36 @@ calculateMovOffsets inst offset = do
         }]
     }
 
+calculateDbOperandOffsets :: [Operand] -> Int -> [Operand]
+calculateDbOperandOffsets [] _ = []
+calculateDbOperandOffsets remaining offset = do
+    let current = head remaining
+
+    let ret = current {
+        operandOffset = offset,
+        operandSize = length (renderDbOperand current) -- renderDbOperand hack
+    }
+
+    [ret] ++ calculateDbOperandOffsets (tail remaining)
+                                       (offset + (operandSize ret))
+
+calculateDbOffsets :: Instruction -> Int -> Instruction
+calculateDbOffsets inst offset = do
+    inst {
+        instructionOffset = offset,
+        operands = calculateDbOperandOffsets (operands inst)
+                    (offset + (commandSize (command inst)))
+    }
+
 calculateDefaultOffsets :: Instruction -> Int -> Instruction
 calculateDefaultOffsets inst offset = inst { instructionOffset = offset }
+
+calculateOperandsSize :: Instruction -> Int
+calculateOperandsSize inst = sum (map operandSize (operands inst))
+
+calculateCommandSize :: Instruction -> Int
+calculateCommandSize inst = commandSize (command inst) +
+                            calculateOperandsSize inst
 
 calculateInstructionOffsets :: [Instruction] -> Int -> [Instruction]
 calculateInstructionOffsets [] _ = []
@@ -35,12 +64,11 @@ calculateInstructionOffsets instructions offset = do
 
     let calculator = case command current of
          "mov" -> calculateMovOffsets
+         "db"  -> calculateDbOffsets
          _     -> calculateDefaultOffsets
 
     let ret = calculator current offset
-
-    let size = (commandSize (command current)) +
-               sum (map operandSize (operands ret))
+    let size = calculateCommandSize ret
 
     [ret] ++ calculateInstructionOffsets (tail instructions) (offset + size)
 
@@ -402,6 +430,22 @@ renderRelocation relo =
     renderInt (fromIntegral (instructionOffset (targetInstruction relo)) ::
                  Int64)
 
+getSymbolLength :: [Char] -> [Section] -> Int
+getSymbolLength name sections = do
+    case findLabel sections name of
+         Nothing     -> error("Can't calculate symbol length of " ++ name)
+         Just (s, i) -> do
+            let x = calculateOperandsSize i
+            trace ("here: " ++ show x) x
+
+getEquValue :: Instruction -> [Section] -> [Char]
+getEquValue inst sections = do
+    let oper = text (head (operands inst))
+
+    if (take 2 oper) /= "$-"
+        then oper
+        else show (getSymbolLength (drop 2 oper) sections)
+
 replaceEqusOperands :: [Operand] -> [Section] -> [Operand]
 replaceEqusOperands [] _ = []
 replaceEqusOperands opers allSections = do
@@ -409,10 +453,10 @@ replaceEqusOperands opers allSections = do
     let operText = text current
 
     let newText = case findLabel allSections operText of
-                   Nothing  -> operText
-                   Just res -> case command (snd res) of
-                                "equ" -> text (head (operands (snd res)))
-                                _     -> operText
+         Nothing  -> operText
+         Just res -> case command (snd res) of
+             "equ" -> getEquValue (snd res) allSections
+             _     -> operText
 
     [current {
         text = newText
