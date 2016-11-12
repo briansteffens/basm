@@ -1,5 +1,3 @@
-%define asdf 123
-
 section .text
 
 _start:

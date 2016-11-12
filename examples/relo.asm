@@ -1,5 +1,3 @@
-%define asdf 123
-
 section .data
 
     message: db "Greetings!", 10
