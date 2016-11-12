@@ -7,7 +7,6 @@ import Data.Bits
 import Data.Binary
 import Data.Binary.Put
 import qualified Data.ByteString.Lazy as BL
-import Debug.Trace
 
 import Parser
 
@@ -434,9 +433,7 @@ getSymbolLength :: [Char] -> [Section] -> Int
 getSymbolLength name sections = do
     case findLabel sections name of
          Nothing     -> error("Can't calculate symbol length of " ++ name)
-         Just (s, i) -> do
-            let x = calculateOperandsSize i
-            trace ("here: " ++ show x) x
+         Just (s, i) -> calculateOperandsSize i
 
 getEquValue :: Instruction -> [Section] -> [Char]
 getEquValue inst sections = do
