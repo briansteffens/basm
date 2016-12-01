@@ -1,5 +1,8 @@
 module Parser where
 
+import Data.List
+import qualified Data.Map as M
+
 import Preprocessor
 
 data Section = Section {
@@ -21,21 +24,41 @@ data Operand = Operand {
     operandSize :: Int
 }
 
-extractGlobals :: [[[Char]]] -> ([[[Char]]], [[Char]])
-extractGlobals [] = ([], [])
+-- Extract global/%define directives from the code
+extractNonSectionLines :: [[[Char]]] -> ([[[Char]]], [[[Char]]])
+extractNonSectionLines [] = ([], [])
+extractNonSectionLines lines = do
+    let current = head lines
+
+    let isNonSection = elem (head current) ["global", "%define"]
+
+    let retLine = case isNonSection of False -> [current]
+                                       True  -> []
+
+    let retGlobal = case isNonSection of False -> []
+                                         True  -> [current]
+
+    let inner = extractNonSectionLines (tail lines)
+    (retLine ++ fst inner, retGlobal ++ snd inner)
+
+extractGlobals :: [[[Char]]] -> [[Char]]
+extractGlobals [] = []
 extractGlobals lines = do
     let current = head lines
 
-    let isGlobal = (head current) == "global"
+    if (head current) == "global" then [current !! 1] else [] ++
+        extractGlobals (tail lines)
 
-    let retLine = case isGlobal of False -> [current]
-                                   True  -> []
+extractDefines :: [[[Char]]] -> [([Char], [Char])]
+extractDefines [] = []
+extractDefines lines = do
+    let current = head lines
+    let rest = tail current
 
-    let retGlobal = case isGlobal of False -> []
-                                     True  -> [current !! 1]
+    let ret = if (head current) /= "%define" then []
+        else [(head rest, intercalate " " (tail rest))]
 
-    let inner = extractGlobals (tail lines)
-    (retLine ++ fst inner, retGlobal ++ snd inner)
+    ret ++ extractDefines (tail lines)
 
 parseOperands :: [[Char]] -> Int -> [Operand]
 parseOperands [] _ = []
@@ -94,11 +117,32 @@ commandSize cmd =
     case cmd of "syscall" -> 2
                 "mov"     -> 2
                 "db"      -> 0
-                "%define" -> 1   -- TODO: hack
 
+applyDefines :: [Section] -> M.Map [Char] [Char] -> [Section]
+applyDefines sections defines = do
+    let processOperand oper = case M.lookup (text oper) defines of
+                              Nothing -> oper
+                              Just t  -> oper { text = t }
+
+    let processInstruction inst = inst {
+        operands = map processOperand (operands inst)
+    }
+
+    let processSection sec = sec {
+        instructions = map processInstruction (instructions sec)
+    }
+
+    map processSection sections
+
+-- Convert a string of code into a tuple of sections and globals
 parse :: [Char] -> ([Section], [[Char]])
 parse input = do
-    let (parsedLines, globals) = extractGlobals .
-                                 preprocess $ input
+    let (parsedLines, nonSectionLines) = extractNonSectionLines .
+                                         preprocess $ input
 
-    (tail . parseSections $ parsedLines, globals)
+    let globals = extractGlobals nonSectionLines
+    let defines = M.fromList (extractDefines nonSectionLines)
+
+    let sections = applyDefines (tail . parseSections $ parsedLines) defines
+
+    (sections, globals)
