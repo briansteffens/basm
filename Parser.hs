@@ -117,6 +117,7 @@ commandSize cmd =
     case cmd of "syscall" -> 2
                 "mov"     -> 2
                 "db"      -> 0
+                "jmp"     -> 1
 
 applyDefines :: [Section] -> M.Map [Char] [Char] -> [Section]
 applyDefines sections defines = do

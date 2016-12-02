@@ -25,6 +25,18 @@ calculateMovOffsets inst offset = do
         }]
     }
 
+calculateJmpOffsets :: Instruction -> Int -> Instruction
+calculateJmpOffsets inst offset = do
+    let cmdSize = commandSize (command inst)
+
+    inst {
+        instructionOffset = offset,
+        operands = [(head (operands inst)) {
+            operandOffset = offset + cmdSize,
+            operandSize   = 4
+        }]
+    }
+
 calculateDbOperandOffsets :: [Operand] -> Int -> [Operand]
 calculateDbOperandOffsets [] _ = []
 calculateDbOperandOffsets remaining offset = do
@@ -63,6 +75,7 @@ calculateInstructionOffsets instructions offset = do
 
     let calculator = case command current of
          "mov" -> calculateMovOffsets
+         "jmp" -> calculateJmpOffsets
          "db"  -> calculateDbOffsets
          _     -> calculateDefaultOffsets
 
@@ -97,6 +110,12 @@ renderDb inst = concat (map renderDbOperand (operands inst))
 renderEqu :: Instruction -> [Int]
 renderEqu inst = [] -- equ should not render any bytes
 
+renderJmp :: Instruction -> [Int]
+renderJmp inst = [0xe9] ++
+    case stringToInt (text (head (operands inst))) of
+        Nothing -> error("Failed to parse jump operand")
+        Just i  -> renderInt (fromIntegral i :: Int32)
+
 renderInstruction :: Instruction -> [Int]
 renderInstruction inst = do
     case (command inst) of
@@ -104,6 +123,7 @@ renderInstruction inst = do
          "mov"     -> renderMov inst
          "db"      -> renderDb inst
          "equ"     -> renderEqu inst
+         "jmp"     -> renderJmp inst
 
 renderSysCall :: Instruction -> [Int]
 renderSysCall _ = [0x0f, 0x05]
@@ -409,11 +429,17 @@ getRelocation sections section operand = do
                            targetInstruction = i
                        }]
 
+-- Check if the given command is a type of jump instruction
+isJump :: [Char] -> Bool
+isJump command = elem command ["jmp"]
+
 getRelocationsInner :: [Section] -> [Section] -> [Relocation]
 getRelocationsInner [] _ = []
 getRelocationsInner remainingSections allSections = do
     let section = head remainingSections
-    let allOperands = concat (map operands (instructions section))
+    let jumpFilter inst = not (isJump (command inst))
+    let nonJumpInstructions = filter jumpFilter (instructions section)
+    let allOperands = concat (map operands nonJumpInstructions)
 
     let ret = concat (map (getRelocation allSections section) allOperands)
     ret ++ getRelocationsInner (tail remainingSections) allSections
@@ -480,6 +506,30 @@ replaceEqus remainingSections allSections = do
 allLabels :: [Section] -> [[Char]]
 allLabels sections = concat (map labels (concat (map instructions sections)))
 
+labelOffset :: Section -> [Char] -> Int
+labelOffset section labelName = do
+    case findLabel [section] labelName of
+         Nothing  -> error("Unable to find label [" ++ labelName ++ "]")
+         Just res -> instructionOffset (snd res)
+
+-- Replace label in jump with RIP-relative address
+applyJump :: Section -> Instruction -> Instruction
+applyJump section inst = if not (isJump (command inst)) then inst else do
+    -- Offset of the next instruction after the current jump (RIP's value)
+    let sourceOffset = (instructionOffset inst) + (calculateCommandSize inst)
+    let targetOffset = labelOffset section (text (head (operands inst)))
+
+    inst {
+        operands = [(head (operands inst)) {
+            text = show (targetOffset - sourceOffset)
+        }]
+    }
+
+-- Replace jumps with RIP-relative addresses by section
+applyJumps :: Section -> Section
+applyJumps section = section {
+    instructions = map (applyJump section) (instructions section) }
+
 reloHeaders :: [Relocation] -> [SectionHeader]
 reloHeaders [] = []
 reloHeaders relocations = do
@@ -508,7 +558,8 @@ main = do
 
     let (tempSections, globals) = parse contents
     let sectionsTemp = calculateSectionOffsets tempSections
-    let sections = replaceEqus sectionsTemp sectionsTemp
+    let sectionsTemp2 = replaceEqus sectionsTemp sectionsTemp
+    let sections = map applyJumps sectionsTemp2
 
     let shRelo = reloHeaders (getRelocations sections)
 
@@ -550,7 +601,7 @@ main = do
     }
 
     let stSections = sectionsToSymTab userSectionHeaders
-    let stLabels = labelsToSymTab sections globals
+    let stLabels = reverse (labelsToSymTab sections globals)
 
     let symtab = [stNull, stFile] ++ stSections ++ stLabels
 
@@ -599,7 +650,7 @@ main = do
         sh_size = fromIntegral (length renderedSymTab) :: Int64,
         sh_link = 0,
         sh_info = fromIntegral ((length symtab) - 1) :: Int32,
-        sh_addralign = 0x4,
+        sh_addralign = 0x8,
         sh_entsize = 0x18
     }, SectionHeader {
         sectionName = ".strtab",
@@ -621,10 +672,10 @@ main = do
     let firstOffset = (fromIntegral e_ehsize :: Int) + (length headers) *
                       (fromIntegral e_shentsize :: Int)
 
+    -- Only calculate offsets on the headers after the null header
+    let headersTail = calculateSectionHeaderOffsets firstOffset (tail headers)
     let headers2 = getSectionHeaderNameOffsets shstrtab .
-                   linkSectionHeaders .
-                   calculateSectionHeaderOffsets firstOffset $
-                   headers
+                   linkSectionHeaders $ ([head headers] ++ headersTail)
 
     let e_shnum = fromIntegral (length headers) :: Int16
     let e_shstrndx = fromIntegral (getSectionHeaderIndex headers2 ".shstrtab")
