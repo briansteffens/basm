@@ -11,7 +11,7 @@ case "$1" in
         ;;
     basm)
         cabal build
-        cat $SRC | dist/build/basm/basm > basm.o
+        dist/build/basm/basm $SRC
         ld basm.o -o basm.a
         ./basm.a
         echo $?

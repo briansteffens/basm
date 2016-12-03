@@ -1,5 +1,6 @@
 module Main where
 
+import System.Environment
 import Data.Int
 import Data.List
 import Data.Char
@@ -554,7 +555,11 @@ reloHeaders relocations = do
 
 main :: IO ()
 main = do
-    contents <- getContents
+    args <- getArgs
+    let filename = case length args of 1 -> head args
+                                       _ -> error("Usage: basm <filename>")
+
+    contents <- readFile filename
 
     let (tempSections, globals) = parse contents
     let sectionsTemp = calculateSectionOffsets tempSections
@@ -566,8 +571,6 @@ main = do
     let e_ehsize    = 64 :: Int16
     let e_shentsize = 64 :: Int16
     let e_shoff     = 64 :: Int64
-
-    let filename = "test2.asm" -- TODO: dynamic
 
     let strtab = ["", filename] ++ allLabels sections
 
@@ -711,4 +714,4 @@ main = do
                    concat renderedSectionHeaders ++
                    renderSectionsData headers2
 
-    BL.putStr (toByteString rendered)
+    BL.writeFile "basm.o" (toByteString rendered)
