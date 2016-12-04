@@ -118,6 +118,7 @@ commandSize cmd =
                 "mov"     -> 2
                 "db"      -> 0
                 "jmp"     -> 1
+                "je"      -> 2 -- TODO: support je short, not just je near.
                 "cmp"     -> 3 -- TODO: needs to be 2 if weird case
 
 applyDefines :: [Section] -> M.Map [Char] [Char] -> [Section]

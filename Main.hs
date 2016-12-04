@@ -111,11 +111,18 @@ renderDb inst = concat (map renderDbOperand (operands inst))
 renderEqu :: Instruction -> [Int]
 renderEqu inst = [] -- equ should not render any bytes
 
-renderJmp :: Instruction -> [Int]
-renderJmp inst = [0xe9] ++
+-- Render the first operand of a jump instruction
+renderJumpOperand :: Instruction -> [Int]
+renderJumpOperand inst = 
     case stringToInt (text (head (operands inst))) of
         Nothing -> error("Failed to parse jump operand")
         Just i  -> renderInt (fromIntegral i :: Int32)
+
+renderJmp :: Instruction -> [Int]
+renderJmp inst = [0xe9] ++ renderJumpOperand inst
+
+renderJe :: Instruction -> [Int]
+renderJe inst = [0x0f, 0x84] ++ renderJumpOperand inst -- TODO: allow je short
 
 renderInstruction :: Instruction -> [Int]
 renderInstruction inst = do
@@ -125,6 +132,7 @@ renderInstruction inst = do
          "db"      -> renderDb inst
          "equ"     -> renderEqu inst
          "jmp"     -> renderJmp inst
+         "je"      -> renderJe inst
          "cmp"     -> renderCmp inst
 
 renderSysCall :: Instruction -> [Int]
@@ -513,7 +521,7 @@ getRelocation sections section operand = do
 
 -- Check if the given command is a type of jump instruction
 isJump :: [Char] -> Bool
-isJump command = elem command ["jmp"]
+isJump command = elem command ["jmp", "je"]
 
 getRelocationsInner :: [Section] -> [Section] -> [Relocation]
 getRelocationsInner [] _ = []
