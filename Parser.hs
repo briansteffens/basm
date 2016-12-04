@@ -118,6 +118,7 @@ commandSize cmd =
                 "mov"     -> 2
                 "db"      -> 0
                 "jmp"     -> 1
+                "cmp"     -> 3 -- TODO: needs to be 2 if weird case
 
 applyDefines :: [Section] -> M.Map [Char] [Char] -> [Section]
 applyDefines sections defines = do

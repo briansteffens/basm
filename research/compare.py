@@ -34,12 +34,15 @@ class Combo(object):
 
 combos = []
 
-for left in ['rax', 'rbx', 'r8']:
+for left in registers:
     for right in registers:
         combos.append(Combo(left, right))
 
 for left in registers:
     combos.append(Combo(left, '7'))
+
+combos.append(Combo('al', 'ah'))
+combos.append(Combo('al', '4'))
 
 for combo in combos:
     combo.instruction = 'cmp {}, {}'.format(combo.left, combo.right)

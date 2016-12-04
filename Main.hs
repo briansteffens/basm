@@ -125,6 +125,7 @@ renderInstruction inst = do
          "db"      -> renderDb inst
          "equ"     -> renderEqu inst
          "jmp"     -> renderJmp inst
+         "cmp"     -> renderCmp inst
 
 renderSysCall :: Instruction -> [Int]
 renderSysCall _ = [0x0f, 0x05]
@@ -160,6 +161,86 @@ renderMov inst = do
     let parsed = case stringToInt (text source) of Nothing -> 0
                                                    Just i  -> i
     prefix ++ renderInt parsed
+
+-- Convert an array of bits into a byte
+bitsToByte :: [Int] -> Int
+bitsToByte = foldl (\byte bit -> byte * 2 + bit) 0
+
+registersStandard64 = ["rax", "rbx", "rcx", "rdx", "rdi", "rsi", "rbp", "rsp"]
+registersExtended64 = ["r8",  "r9",  "r10", "r11", "r12", "r13", "r14", "r15"]
+registersAll = registersStandard64 ++ registersExtended64
+
+-- Check if a string matches a known register
+isRegister :: [Char] -> Bool
+isRegister register = elem register registersAll
+
+-- Returns a flag indicating if the register is one of the new 64-bit ones
+isExtendedRegister :: [Char] -> Int
+isExtendedRegister register =
+    if elem register registersExtended64 then 1 else 0
+
+-- Gets the 3-bit code for an operand (as in cmp instructions)
+registerOperand :: [Char] -> [Int]
+registerOperand "rax" = [0, 0, 0]
+registerOperand "rbx" = [0, 1, 1]
+registerOperand "rcx" = [0, 0, 1]
+registerOperand "rdx" = [0, 1, 0]
+registerOperand "rdi" = [1, 1, 1]
+registerOperand "rsi" = [1, 1, 0]
+registerOperand "rbp" = [1, 0, 1]
+registerOperand "rsp" = [1, 0, 0]
+registerOperand "r8"  = [0, 0, 0]
+registerOperand "r9"  = [0, 0, 1]
+registerOperand "r10" = [0, 1, 0]
+registerOperand "r11" = [0, 1, 1]
+registerOperand "r12" = [1, 0, 0]
+registerOperand "r13" = [1, 0, 1]
+registerOperand "r14" = [1, 1, 0]
+registerOperand "r15" = [1, 1, 1]
+
+-- Special case where if the first operand is rax and the second operand is an
+-- immediate, the instruction renders differently
+isWeirdCmpCase :: Instruction -> Bool
+isWeirdCmpCase inst = do
+    let second = text (last (operands inst))
+    let first = text (head (operands inst))
+
+    first == "rax" && not (isRegister second)
+
+--  Render a cmp instruction
+renderCmp :: Instruction -> [Int]
+renderCmp inst = do
+    let first = text (head (operands inst))
+    let second = text (last (operands inst))
+
+    let isSecondImmediate = not (isRegister second)
+
+    let firstByte = [0, 1, 0, 0, 1,
+                     isExtendedRegister second,
+                     0,
+                     isExtendedRegister first]
+
+    let secondByte = if not isSecondImmediate then [0, 0, 1, 1, 1, 0, 0, 1]
+                     else if first == "rax" then [0, 0, 1, 1, 1, 1, 0, 1]
+                     else [1, 0, 0, 0, 0, 0, 0, 1]
+
+    let thirdByte = [1, 1] ++
+                    (if isSecondImmediate then [1, 1, 1]
+                     else registerOperand second) ++
+                     registerOperand first
+
+    -- In the weird cmp case, the whole third byte is left out
+    let prefixBytes = [firstByte, secondByte] ++
+                      if isWeirdCmpCase inst then [] else [thirdByte]
+
+    let prefix = map bitsToByte prefixBytes
+
+    let parsed = case stringToInt second of
+                  Nothing -> error("Can't parse second operand: " ++ second)
+                  Just i  -> fromIntegral i :: Int32
+
+    -- Add immediate operand if needed
+    prefix ++ if isSecondImmediate then renderInt parsed else []
 
 toByteString :: [Int] -> BL.ByteString
 toByteString input = BL.pack (map fromIntegral input)
