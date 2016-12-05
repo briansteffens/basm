@@ -124,6 +124,9 @@ renderJmp inst = [0xe9] ++ renderJumpOperand inst
 renderJe :: Instruction -> [Int]
 renderJe inst = [0x0f, 0x84] ++ renderJumpOperand inst -- TODO: allow je short
 
+renderJne :: Instruction -> [Int]
+renderJne inst = [0x0f, 0x85] ++ renderJumpOperand inst
+
 renderInstruction :: Instruction -> [Int]
 renderInstruction inst = do
     case (command inst) of
@@ -133,6 +136,7 @@ renderInstruction inst = do
          "equ"     -> renderEqu inst
          "jmp"     -> renderJmp inst
          "je"      -> renderJe inst
+         "jne"     -> renderJne inst
          "cmp"     -> renderCmp inst
 
 renderSysCall :: Instruction -> [Int]
@@ -521,7 +525,7 @@ getRelocation sections section operand = do
 
 -- Check if the given command is a type of jump instruction
 isJump :: [Char] -> Bool
-isJump command = elem command ["jmp", "je"]
+isJump command = elem command ["jmp", "je", "jne"]
 
 getRelocationsInner :: [Section] -> [Section] -> [Relocation]
 getRelocationsInner [] _ = []
