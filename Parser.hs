@@ -120,6 +120,10 @@ commandSize cmd =
                 "jmp"     -> 1
                 "je"      -> 2 -- TODO: support je short, not just je near.
                 "jne"     -> 2
+                "jl"      -> 2
+                "jle"     -> 2
+                "jg"      -> 2
+                "jge"     -> 2
                 "cmp"     -> 3 -- TODO: needs to be 2 if weird case
 
 applyDefines :: [Section] -> M.Map [Char] [Char] -> [Section]
