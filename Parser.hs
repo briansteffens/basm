@@ -125,6 +125,8 @@ commandSize cmd =
                 "jg"      -> 2
                 "jge"     -> 2
                 "cmp"     -> 3 -- TODO: needs to be 2 if weird case
+                "inc"     -> 2 -- TODO: 1 or 2 depending on operand
+                "dec"     -> 2 -- TODO: 1 or 2 depending on operand
 
 applyDefines :: [Section] -> M.Map [Char] [Char] -> [Section]
 applyDefines sections defines = do

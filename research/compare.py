@@ -20,39 +20,41 @@ def assemble(instruction):
         return f.read()[0x180:][:size]
 
 
-registers = ['rax', 'rbx', 'rcx', 'rdx', 'rdi', 'rsi', 'rbp', 'rsp',
-             'r8', 'r9', 'r10', 'r11', 'r12', 'r13', 'r14', 'r15']
+registers = [
+    'rax', 'rbx', 'rcx', 'rdx', 'rdi', 'rsi', 'rbp', 'rsp',
+    'r8',  'r9',  'r10', 'r11', 'r12', 'r13', 'r14', 'r15',
+    'eax', 'ebx', 'ecx', 'edx', 'edi', 'esi', 'ebp', 'esp',
+    'ax',  'bx',  'cx',  'dx',  'di',  'si',  'bp',  'sp',
+    'al',  'bl',  'cl',  'dl',
+    'ah',  'bh',  'ch',  'dh',
+]
 
-class Combo(object):
-    def __init__(self, left, right):
-        self.left = left
-        self.right = right
+class Instruction(object):
+    def __init__(self, command, operands):
+        self.command = command
+        self.operands = operands
         self.instruction = None
         self.assembled = None
         self.hex = None
         self.bin = None
 
-combos = []
+instructions = []
 
-for left in registers:
-    for right in registers:
-        combos.append(Combo(left, right))
+for reg in registers:
+    instructions.append(Instruction('inc', [reg]))
 
-for left in registers:
-    combos.append(Combo(left, '7'))
+for inst in instructions:
+    inst.instruction = inst.command
+    if len(inst.operands) > 0:
+        inst.instruction += ' ' + ', '.join(inst.operands)
 
-combos.append(Combo('al', 'ah'))
-combos.append(Combo('al', '4'))
+    inst.assembled = assemble(inst.instruction)
 
-for combo in combos:
-    combo.instruction = 'cmp {}, {}'.format(combo.left, combo.right)
-    combo.assembled = assemble(combo.instruction)
+    inst.hex = [hex(a)[2:].zfill(2) for a in inst.assembled]
+    inst.bin = [bin(a)[2:].zfill(8) for a in inst.assembled]
 
-    combo.hex = [hex(a)[2:].zfill(2) for a in combo.assembled]
-    combo.bin = [bin(a)[2:].zfill(8) for a in combo.assembled]
-
-instruction_max = max([len(c.instruction) for c in combos])
-bytes_max = max([len(c.assembled) for c in combos])
+instruction_max = max([len(i.instruction) for i in instructions])
+bytes_max = max([len(i.assembled) for i in instructions])
 hex_max = 3 * bytes_max - 1
 
 def pad(string, length):
@@ -61,10 +63,10 @@ def pad(string, length):
 
     return string
 
-for combo in combos:
-    instruction = pad(combo.instruction, instruction_max)
-    hex_out = pad(' '.join(combo.hex), hex_max)
-    bin_out = ' '.join(combo.bin)
+for inst in instructions:
+    instruction = pad(inst.instruction, instruction_max)
+    hex_out = pad(' '.join(inst.hex), hex_max)
+    bin_out = ' '.join(inst.bin)
 
     line = '    '.join([instruction, hex_out, bin_out])
 

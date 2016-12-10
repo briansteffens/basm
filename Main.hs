@@ -154,6 +154,8 @@ renderInstruction inst = do
          "jg"      -> renderJg inst
          "jge"     -> renderJge inst
          "cmp"     -> renderCmp inst
+         "inc"     -> renderIncDec inst
+         "dec"     -> renderIncDec inst
 
 renderSysCall :: Instruction -> [Int]
 renderSysCall _ = [0x0f, 0x05]
@@ -196,7 +198,23 @@ bitsToByte = foldl (\byte bit -> byte * 2 + bit) 0
 
 registersStandard64 = ["rax", "rbx", "rcx", "rdx", "rdi", "rsi", "rbp", "rsp"]
 registersExtended64 = ["r8",  "r9",  "r10", "r11", "r12", "r13", "r14", "r15"]
-registersAll = registersStandard64 ++ registersExtended64
+registers32         = ["eax", "ebx", "ecx", "edx", "edi", "esi", "ebp", "esp"]
+registers16         = ["ax",  "bx",  "cx",  "dx",  "di",  "si",  "bp",  "sp" ]
+registersLow8       = ["al",  "bl",  "cl",  "dl"]
+registersHigh8      = ["ah",  "bh",  "ch",  "dh"]
+
+registers64 = registersStandard64 ++ registersExtended64
+registers8 = registersLow8 ++ registersHigh8
+
+registersAll = registers64 ++ registers32 ++ registers16 ++ registers8
+
+-- Get the number of bits in the given register
+bitsInRegister :: [Char] -> Int
+bitsInRegister register
+    | elem register registers64 = 64
+    | elem register registers32 = 32
+    | elem register registers16 = 16
+    | elem register registers8  = 8
 
 -- Check if a string matches a known register
 isRegister :: [Char] -> Bool
@@ -225,6 +243,54 @@ registerOperand "r12" = [1, 0, 0]
 registerOperand "r13" = [1, 0, 1]
 registerOperand "r14" = [1, 1, 0]
 registerOperand "r15" = [1, 1, 1]
+registerOperand "eax" = [0, 0, 0]
+registerOperand "ebx" = [0, 1, 1]
+registerOperand "ecx" = [0, 0, 1]
+registerOperand "edx" = [0, 1, 0]
+registerOperand "edi" = [1, 1, 1]
+registerOperand "esi" = [1, 1, 0]
+registerOperand "ebp" = [1, 0, 1]
+registerOperand "esp" = [1, 0, 0]
+registerOperand "ax"  = [0, 0, 0]
+registerOperand "bx"  = [0, 1, 1]
+registerOperand "cx"  = [0, 0, 1]
+registerOperand "dx"  = [0, 1, 0]
+registerOperand "di"  = [1, 1, 1]
+registerOperand "si"  = [1, 1, 0]
+registerOperand "bp"  = [1, 0, 1]
+registerOperand "sp"  = [1, 0, 0]
+registerOperand "al"  = [0, 0, 0]
+registerOperand "bl"  = [0, 1, 1]
+registerOperand "cl"  = [0, 0, 1]
+registerOperand "dl"  = [0, 1, 0]
+registerOperand "ah"  = [1, 0, 0]
+registerOperand "bh"  = [1, 1, 1]
+registerOperand "ch"  = [1, 0, 1]
+registerOperand "dh"  = [1, 1, 0]
+
+-- Render an inc or dec instruction
+renderIncDec :: Instruction -> [Int]
+renderIncDec inst = do
+    let oper = text (head (operands inst))
+
+    let bits = bitsInRegister oper
+    let prefix = case bits of 8  -> [0xfe]
+                              16 -> [0x66, 0xff]
+                              32 -> [0xff]
+                              64 -> [0x48, 0xff]
+
+    let instructionBit = if command inst == "inc" then 0 else 1
+
+    let byte = [1, 1, 0, 0,
+                if command inst == "inc" then 0 else 1] ++
+               registerOperand oper
+
+    prefix ++ [bitsToByte byte]
+
+--rax    48 ff
+--eax    ff
+--ax     66 ff
+--al     fe
 
 -- Special case where if the first operand is rax and the second operand is an
 -- immediate, the instruction renders differently
@@ -235,7 +301,7 @@ isWeirdCmpCase inst = do
 
     first == "rax" && not (isRegister second)
 
---  Render a cmp instruction
+-- Render a cmp instruction
 renderCmp :: Instruction -> [Int]
 renderCmp inst = do
     let first = text (head (operands inst))
