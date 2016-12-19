@@ -9,11 +9,12 @@ import Data.Binary
 import Data.Binary.Put
 import qualified Data.ByteString.Lazy as BL
 
+import Definitions
 import Parser
 
 calculateMovOffsets :: Instruction -> Int -> Instruction
 calculateMovOffsets inst offset = do
-    let cmdSize = commandSize (command inst)
+    let cmdSize = commandSize inst
 
     inst {
         instructionOffset = offset,
@@ -27,13 +28,11 @@ calculateMovOffsets inst offset = do
     }
 
 calculateJmpOffsets :: Instruction -> Int -> Instruction
-calculateJmpOffsets inst offset = do
-    let cmdSize = commandSize (command inst)
-
+calculateJmpOffsets inst offset =
     inst {
         instructionOffset = offset,
         operands = [(head (operands inst)) {
-            operandOffset = offset + cmdSize,
+            operandOffset = offset + commandSize inst,
             operandSize   = 4
         }]
     }
@@ -56,7 +55,7 @@ calculateDbOffsets inst offset = do
     inst {
         instructionOffset = offset,
         operands = calculateDbOperandOffsets (operands inst)
-                    (offset + (commandSize (command inst)))
+                    (offset + (commandSize inst))
     }
 
 calculateDefaultOffsets :: Instruction -> Int -> Instruction
@@ -66,8 +65,7 @@ calculateOperandsSize :: Instruction -> Int
 calculateOperandsSize inst = sum (map operandSize (operands inst))
 
 calculateCommandSize :: Instruction -> Int
-calculateCommandSize inst = commandSize (command inst) +
-                            calculateOperandsSize inst
+calculateCommandSize inst = commandSize inst + calculateOperandsSize inst
 
 calculateInstructionOffsets :: [Instruction] -> Int -> [Instruction]
 calculateInstructionOffsets [] _ = []
@@ -113,7 +111,7 @@ renderEqu inst = [] -- equ should not render any bytes
 
 -- Render the first operand of a jump instruction
 renderJumpOperand :: Instruction -> [Int]
-renderJumpOperand inst = 
+renderJumpOperand inst =
     case stringToInt (text (head (operands inst))) of
         Nothing -> error("Failed to parse jump operand")
         Just i  -> renderInt (fromIntegral i :: Int32)
@@ -196,35 +194,6 @@ renderMov inst = do
 bitsToByte :: [Int] -> Int
 bitsToByte = foldl (\byte bit -> byte * 2 + bit) 0
 
-registersStandard64 = ["rax", "rbx", "rcx", "rdx", "rdi", "rsi", "rbp", "rsp"]
-registersExtended64 = ["r8",  "r9",  "r10", "r11", "r12", "r13", "r14", "r15"]
-registers32         = ["eax", "ebx", "ecx", "edx", "edi", "esi", "ebp", "esp"]
-registers16         = ["ax",  "bx",  "cx",  "dx",  "di",  "si",  "bp",  "sp" ]
-registersLow8       = ["al",  "bl",  "cl",  "dl"]
-registersHigh8      = ["ah",  "bh",  "ch",  "dh"]
-
-registers64 = registersStandard64 ++ registersExtended64
-registers8 = registersLow8 ++ registersHigh8
-
-registersAll = registers64 ++ registers32 ++ registers16 ++ registers8
-
--- Get the number of bits in the given register
-bitsInRegister :: [Char] -> Int
-bitsInRegister register
-    | elem register registers64 = 64
-    | elem register registers32 = 32
-    | elem register registers16 = 16
-    | elem register registers8  = 8
-
--- Check if a string matches a known register
-isRegister :: [Char] -> Bool
-isRegister register = elem register registersAll
-
--- Returns a flag indicating if the register is one of the new 64-bit ones
-isExtendedRegister :: [Char] -> Int
-isExtendedRegister register =
-    if elem register registersExtended64 then 1 else 0
-
 -- Gets the 3-bit code for an operand (as in cmp instructions)
 registerOperand :: [Char] -> [Int]
 registerOperand "rax" = [0, 0, 0]
@@ -286,20 +255,6 @@ renderIncDec inst = do
                registerOperand oper
 
     prefix ++ [bitsToByte byte]
-
---rax    48 ff
---eax    ff
---ax     66 ff
---al     fe
-
--- Special case where if the first operand is rax and the second operand is an
--- immediate, the instruction renders differently
-isWeirdCmpCase :: Instruction -> Bool
-isWeirdCmpCase inst = do
-    let second = text (last (operands inst))
-    let first = text (head (operands inst))
-
-    first == "rax" && not (isRegister second)
 
 -- Render a cmp instruction
 renderCmp :: Instruction -> [Int]

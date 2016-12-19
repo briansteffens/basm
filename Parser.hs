@@ -3,26 +3,8 @@ module Parser where
 import Data.List
 import qualified Data.Map as M
 
+import Definitions
 import Preprocessor
-
-data Section = Section {
-    kind :: [Char],
-    instructions :: [Instruction],
-    sectionIndex :: Int
-}
-
-data Instruction = Instruction {
-    labels :: [[Char]],
-    command :: [Char],
-    operands :: [Operand],
-    instructionOffset :: Int
-}
-
-data Operand = Operand {
-    text :: [Char],
-    operandOffset :: Int,
-    operandSize :: Int
-}
 
 
 -- Extract global/%define directives from the code
@@ -84,8 +66,6 @@ parseInstructionsInner lines = do
     let operandStrings = tail nonLabel
     let command = head nonLabel
 
-    let size = commandSize command
-
     let operands = parseOperands operandStrings
     let instruction = Instruction labels command operands 0
 
@@ -118,8 +98,9 @@ parseSections :: [[[Char]]] -> [Section]
 parseSections lines = parseSectionsInner lines "base" 0
 
 
-commandSize :: [Char] -> Int
-commandSize cmd =
+commandSize :: Instruction -> Int
+commandSize inst = do
+    let cmd = command inst
     case cmd of "syscall" -> 2
                 "mov"     -> 2
                 "db"      -> 0
@@ -130,7 +111,7 @@ commandSize cmd =
                 "jle"     -> 2
                 "jg"      -> 2
                 "jge"     -> 2
-                "cmp"     -> 3 -- TODO: needs to be 2 if weird case
+                "cmp"     -> if isWeirdCmpCase inst then 2 else 3
                 "inc"     -> 2 -- TODO: 1 or 2 depending on operand
                 "dec"     -> 2 -- TODO: 1 or 2 depending on operand
 
@@ -152,6 +133,7 @@ applyDefines sections defines = do
     map processSection sections
 
 
+-- Apply offsets/sizes to an instruction's operands
 calculateOffsetsOperands :: [Operand] -> Int -> [Operand]
 calculateOffsetsOperands [] _ = []
 calculateOffsetsOperands operands offset = do
@@ -169,12 +151,13 @@ calculateOffsetsOperands operands offset = do
     [newOperand] ++ inner
 
 
+-- Apply offsets/sizes to a list of instructions
 calculateOffsetsInstructions :: [Instruction] -> Int -> [Instruction]
 calculateOffsetsInstructions [] _ = []
 calculateOffsetsInstructions instructions offset = do
     let current = head instructions
 
-    let size = commandSize (command current)
+    let size = commandSize current
 
     let newOperands = calculateOffsetsOperands (operands current)
                                                (offset + size)
@@ -191,6 +174,7 @@ calculateOffsetsInstructions instructions offset = do
     [instruction] ++ inner
 
 
+-- Apply offsets/sizes to a list of sections
 calculateOffsets :: [Section] -> [Section]
 calculateOffsets sections = do
     let processSection sec = sec {
