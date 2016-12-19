@@ -24,6 +24,7 @@ data Operand = Operand {
     operandSize :: Int
 }
 
+
 -- Extract global/%define directives from the code
 extractNonSectionLines :: [[[Char]]] -> ([[[Char]]], [[[Char]]])
 extractNonSectionLines [] = ([], [])
@@ -41,6 +42,7 @@ extractNonSectionLines lines = do
     let inner = extractNonSectionLines (tail lines)
     (retLine ++ fst inner, retGlobal ++ snd inner)
 
+
 extractGlobals :: [[[Char]]] -> [[Char]]
 extractGlobals [] = []
 extractGlobals lines = do
@@ -48,6 +50,7 @@ extractGlobals lines = do
 
     if (head current) == "global" then [current !! 1] else [] ++
         extractGlobals (tail lines)
+
 
 extractDefines :: [[[Char]]] -> [([Char], [Char])]
 extractDefines [] = []
@@ -60,18 +63,20 @@ extractDefines lines = do
 
     ret ++ extractDefines (tail lines)
 
-parseOperands :: [[Char]] -> Int -> [Operand]
-parseOperands [] _ = []
-parseOperands operands offset = do
-    let ret = Operand (head operands) offset 0
 
-    let inner = parseOperands (tail operands) (offset + (operandSize ret))
+parseOperands :: [[Char]] -> [Operand]
+parseOperands [] = []
+parseOperands operands = do
+    let ret = Operand (head operands) 0 0
+
+    let inner = parseOperands (tail operands)
 
     [ret] ++ inner
 
-parseInstructionsInner :: [[[Char]]] -> Int -> [Instruction]
-parseInstructionsInner [] _ = []
-parseInstructionsInner lines offset = do
+
+parseInstructionsInner :: [[[Char]]] -> [Instruction]
+parseInstructionsInner [] = []
+parseInstructionsInner lines = do
     let current = head lines
     let parts = break (\s -> last s /= ':') current
     let labels = [init l | l <- fst parts]
@@ -81,16 +86,15 @@ parseInstructionsInner lines offset = do
 
     let size = commandSize command
 
-    let operands = parseOperands operandStrings (offset + size)
-    let instruction = Instruction labels command operands offset
-
-    let operandsSize = sum [operandSize o | o <- operands]
+    let operands = parseOperands operandStrings
+    let instruction = Instruction labels command operands 0
 
     [instruction] ++ parseInstructionsInner (tail lines)
-                                            (offset + size + operandsSize)
+
 
 parseInstructions :: [[[Char]]] -> [Instruction]
-parseInstructions lines = parseInstructionsInner lines 0
+parseInstructions lines = parseInstructionsInner lines
+
 
 parseSectionsInner :: [[[Char]]] -> [Char] -> Int -> [Section]
 parseSectionsInner [] _ _ = []
@@ -109,8 +113,10 @@ parseSectionsInner lines kind index = do
 
     [ret] ++ parseSectionsInner remaining nextSection (succ index)
 
+
 parseSections :: [[[Char]]] -> [Section]
 parseSections lines = parseSectionsInner lines "base" 0
+
 
 commandSize :: [Char] -> Int
 commandSize cmd =
@@ -128,6 +134,7 @@ commandSize cmd =
                 "inc"     -> 2 -- TODO: 1 or 2 depending on operand
                 "dec"     -> 2 -- TODO: 1 or 2 depending on operand
 
+
 applyDefines :: [Section] -> M.Map [Char] [Char] -> [Section]
 applyDefines sections defines = do
     let processOperand oper = case M.lookup (text oper) defines of
@@ -144,6 +151,55 @@ applyDefines sections defines = do
 
     map processSection sections
 
+
+calculateOffsetsOperands :: [Operand] -> Int -> [Operand]
+calculateOffsetsOperands [] _ = []
+calculateOffsetsOperands operands offset = do
+    let current = head operands
+
+    let size = 8
+
+    let newOperand = current {
+        operandOffset = offset,
+        operandSize = size
+    }
+
+    let inner = calculateOffsetsOperands (tail operands) (offset + size)
+
+    [newOperand] ++ inner
+
+
+calculateOffsetsInstructions :: [Instruction] -> Int -> [Instruction]
+calculateOffsetsInstructions [] _ = []
+calculateOffsetsInstructions instructions offset = do
+    let current = head instructions
+
+    let size = commandSize (command current)
+
+    let newOperands = calculateOffsetsOperands (operands current)
+                                               (offset + size)
+
+    let instruction = current {
+        instructionOffset = offset,
+        operands = newOperands
+    }
+
+    let operandsSize = sum [operandSize o | o <- newOperands]
+    let inner = calculateOffsetsInstructions (tail instructions)
+                    (offset + size + operandsSize)
+
+    [instruction] ++ inner
+
+
+calculateOffsets :: [Section] -> [Section]
+calculateOffsets sections = do
+    let processSection sec = sec {
+        instructions = calculateOffsetsInstructions (instructions sec) 0
+    }
+
+    map processSection sections
+
+
 -- Convert a string of code into a tuple of sections and globals
 parse :: [Char] -> ([Section], [[Char]])
 parse input = do
@@ -154,5 +210,6 @@ parse input = do
     let defines = M.fromList (extractDefines nonSectionLines)
 
     let sections = applyDefines (tail . parseSections $ parsedLines) defines
+    let sections2 = calculateOffsets sections
 
-    (sections, globals)
+    (sections2, globals)
