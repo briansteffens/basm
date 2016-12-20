@@ -1,23 +1,4 @@
-import subprocess
-
-def assemble(instruction):
-    rendered = 'section .text\nglobal _start\n_start:\n' + instruction
-
-    with open('file.asm', 'w') as f:
-        f.write(rendered)
-
-    subprocess.call('nasm -f elf64 -O0 file.asm -o file.o', shell=True)
-
-    readelf = subprocess.check_output('readelf -a file.o', shell=True)
-    readelf_lines = str(readelf, 'utf-8').split('\n')
-    for i in range(len(readelf_lines)):
-        if '.text' in readelf_lines[i]:
-            line = readelf_lines[i + 1]
-            size = int(line.split()[0], 16)
-            break
-
-    with open('file.o', 'rb') as f:
-        return f.read()[0x180:][:size]
+from assemble import assemble
 
 
 regs64s = ['rax', 'rbx', 'rcx', 'rdx', 'rdi', 'rsi', 'rbp', 'rsp']
@@ -47,17 +28,22 @@ INST_DIVIDER = Instruction(None, None)
 
 instructions = []
 
-for regset in [regs64, regs32, regs16, regs8]:
-    for cmd in ['cmp', 'mov']:
-        for reg in regset:
-            instructions.append(Instruction(cmd, [reg, '7']))
-        instructions.append(INST_DIVIDER)
+#for regset in [regs64, regs32, regs16, regs8]:
+#    for cmd in ['cmp', 'mov']:
+#        for reg in regset:
+#            instructions.append(Instruction(cmd, [reg, '7']))
+#        instructions.append(INST_DIVIDER)
+#
+#for regset in [regs64, regs32, regs16, regs8]:
+#    for cmd in ['inc', 'dec']:
+#        for reg in regset:
+#            instructions.append(Instruction(cmd, [reg]))
+#        instructions.append(INST_DIVIDER)
 
-for regset in [regs64, regs32, regs16, regs8]:
-    for cmd in ['inc', 'dec']:
-        for reg in regset:
-            instructions.append(Instruction(cmd, [reg]))
-        instructions.append(INST_DIVIDER)
+instructions.append(Instruction('add', ['bh', 'al']))
+instructions.append(Instruction('add', ['rax', 'rbx']))
+instructions.append(Instruction('add', ['rax', '[rbx]']))
+instructions.append(Instruction('add', ['[rax]', 'rbx']))
 
 
 for inst in instructions:
