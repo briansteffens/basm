@@ -50,6 +50,7 @@ isExtendedRegister register =
 
 -- Special case where if the first operand is rax and the second operand is an
 -- immediate, the instruction renders differently
+-- TODO: This should also apply to eax/ax/al
 isWeirdCmpCase :: Instruction -> Bool
 isWeirdCmpCase inst = do
     let second = text (last (operands inst))
