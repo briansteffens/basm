@@ -40,11 +40,46 @@ instructions = []
 #            instructions.append(Instruction(cmd, [reg]))
 #        instructions.append(INST_DIVIDER)
 
-instructions.append(Instruction('add', ['bh', 'al']))
-instructions.append(Instruction('add', ['rax', 'rbx']))
-instructions.append(Instruction('add', ['rax', '[rbx]']))
-instructions.append(Instruction('add', ['[rax]', 'rbx']))
+instructions.append(Instruction('add', ['al', 'ah']))
+instructions.append(Instruction('add', ['[rax]', 'ah']))
+instructions.append(INST_DIVIDER)
 
+instructions.append(Instruction('add', ['ax', 'bx']))
+instructions.append(Instruction('add', ['eax', 'ebx']))
+instructions.append(Instruction('add', ['rax', 'rbx']))
+instructions.append(INST_DIVIDER)
+
+instructions.append(Instruction('add', ['[rax]', 'bx']))
+instructions.append(Instruction('add', ['[rax]', 'ebx']))
+instructions.append(Instruction('add', ['[rax]', 'rbx']))
+instructions.append(INST_DIVIDER)
+
+instructions.append(Instruction('add', ['ah', '[rax]']))
+instructions.append(INST_DIVIDER)
+
+instructions.append(Instruction('add', ['bx', '[rax]']))
+instructions.append(Instruction('add', ['ebx', '[rax]']))
+instructions.append(Instruction('add', ['rbx', '[rax]']))
+instructions.append(INST_DIVIDER)
+
+instructions.append(Instruction('add', ['al', '3']))
+instructions.append(INST_DIVIDER)
+
+instructions.append(Instruction('add', ['ax', '3']))
+instructions.append(Instruction('add', ['eax', '3']))
+instructions.append(Instruction('add', ['rax', '3']))
+instructions.append(INST_DIVIDER)
+
+instructions.append(Instruction('add byte', ['[rax]', '3']))
+instructions.append(INST_DIVIDER)
+
+instructions.append(Instruction('add word', ['rax', '3']))
+instructions.append(Instruction('add dword', ['rax', '3']))
+instructions.append(Instruction('add qword', ['rax', '3']))
+instructions.append(Instruction('add word', ['[rax]', '3']))
+instructions.append(Instruction('add dword', ['[rax]', '3']))
+instructions.append(Instruction('add qword', ['[rax]', '3']))
+instructions.append(INST_DIVIDER)
 
 for inst in instructions:
     if inst == INST_DIVIDER:
