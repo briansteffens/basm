@@ -70,15 +70,28 @@ instructions.append(Instruction('add', ['eax', '3']))
 instructions.append(Instruction('add', ['rax', '3']))
 instructions.append(INST_DIVIDER)
 
+instructions.append(Instruction('add', ['bl', '3']))
+instructions.append(INST_DIVIDER)
+
+instructions.append(Instruction('add', ['bx', '3']))
+instructions.append(Instruction('add', ['ebx', '3']))
+instructions.append(Instruction('add', ['rbx', '3']))
+instructions.append(INST_DIVIDER)
+
 instructions.append(Instruction('add byte', ['[rax]', '3']))
 instructions.append(INST_DIVIDER)
 
-instructions.append(Instruction('add word', ['rax', '3']))
-instructions.append(Instruction('add dword', ['rax', '3']))
-instructions.append(Instruction('add qword', ['rax', '3']))
 instructions.append(Instruction('add word', ['[rax]', '3']))
 instructions.append(Instruction('add dword', ['[rax]', '3']))
 instructions.append(Instruction('add qword', ['[rax]', '3']))
+instructions.append(INST_DIVIDER)
+
+instructions.append(Instruction('add', ['rax', '[rax+7]']))
+instructions.append(Instruction('add', ['rax', '[rax+rbx]']))
+instructions.append(Instruction('add', ['rax', '[rax*2]']))
+instructions.append(Instruction('add', ['rax', '[rax*2+7]']))
+instructions.append(Instruction('add', ['rax', '[rax*2+rbx]']))
+instructions.append(Instruction('add', ['rax', '[rax*2+rbx+7]']))
 instructions.append(INST_DIVIDER)
 
 for inst in instructions:
