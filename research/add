@@ -64,3 +64,18 @@ if qword, prepend 48
 
 
 if opcode != 04,05 -> mod rm
+
+
+
+
+add byte al, bl                00 d8                      00000000 11011000
+add byte [rax], bl             00 18                      00000000 00011000
+add qword rax, rbx             48 01 d8                   01001000 00000001 11011000
+add qword [rax], rbx           48 01 18                   01001000 00000001 00011000
+add bl, [rax]                  02 18                      00000010 00011000
+add qword rbx, [rax]           48 03 18                   01001000 00000011 00011000
+add byte al, 123               04                 imm8    00000100
+add dword eax, 123             05                 imm32   00000101
+add byte ch, 123               80 c5 7b                   10000000 11000101 01111011
+add qword [rcx+8*rdx+455],456  48 81 84 d1 disp32 imm32   01001000 10000001 10000100 11010001
+add rbx, 123                   48 81 c3           imm32   01001000 10000001 11000011
