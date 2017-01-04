@@ -271,6 +271,24 @@ needsModRm :: Int -> Bool
 needsModRm op = not (elem op [0x04, 0x05])
 
 
+-- Convert a scale into its 2-bit SIB byte representation.
+encodeScale :: Scale -> [Int]
+encodeScale NoScale = [0, 0]
+encodeScale Scale2  = [0, 1]
+encodeScale Scale4  = [1, 0]
+encodeScale Scale8  = [1, 1]
+
+
+-- Encode a SIB byte if necessary.
+-- Operands must be in encoded order.
+sibByte :: [Operand] -> [[Int]]
+sibByte [Address _    NoScale NoRegister _, _] = []
+sibByte [Address base scale   index      _, _] = [encodeScale scale ++
+                                                  registerIndex index ++
+                                                  registerIndex base]
+sibByte [_, _]                                 = []
+
+
 -- Get an opcode based on an assembly command and its operators.
 opcode :: Command -> [Operand] -> Int
 opcode ADD [_,               Register r]
@@ -452,11 +470,12 @@ main = do
                   Warn    m s -> trace m s
                   Fail    m   -> error m
         let prefix = sizePrefix op size (operands i)
-        (showHex op " ") ++
-            (show size) ++ " " ++
-            (show (modRmByte (encodedOrder op (operands i)))) ++
-            "\t" ++
-            (source i) ++ "\n" ++
-            (intercalate " " (map show prefix)) ++ "\n"
+        let sib = sibByte (encodedOrder op (operands i))
+        (source i) ++ "\n" ++
+            "\tsize  : " ++ (show size) ++ "\n" ++
+            "\tprefix: " ++ (intercalate " " (map show prefix)) ++ "\n" ++
+            "\top    : " ++ (showHex op " ") ++ "\n" ++
+            "\tmodrm : " ++ (show (modRmByte (encodedOrder op (operands i)))) ++ "\n" ++
+            "\tsib   : " ++ (intercalate " " (map show sib)) ++ "\n"
 
     putStrLn (intercalate "\n" (map go instructions))
