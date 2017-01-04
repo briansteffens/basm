@@ -9,6 +9,7 @@ import Data.Binary
 import Data.Binary.Put
 import qualified Data.ByteString.Lazy as BL
 
+import Shared
 import Definitions
 import Parser
 
@@ -189,10 +190,6 @@ renderMov inst = do
     let parsed = case stringToInt (text source) of Nothing -> 0
                                                    Just i  -> i
     prefix ++ renderInt parsed
-
--- Convert an array of bits into a byte
-bitsToByte :: [Int] -> Int
-bitsToByte = foldl (\byte bit -> byte * 2 + bit) 0
 
 -- Gets the 3-bit code for an operand (as in cmp instructions)
 registerOperand :: [Char] -> [Int]

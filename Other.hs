@@ -1,9 +1,14 @@
 module Main where
 
+import Data.Int
 import Data.List
+import Data.Binary
 import qualified Data.ByteString as B
+
 import Numeric (showHex)
 import Debug.Trace (trace)
+
+import Shared
 
 
 data Result a = Success a
@@ -60,8 +65,8 @@ registers64 = [RAX, RBX, RCX, RDX, RBP, RSP, RSI, RDI, RIP] ++
 
 
 data Displacement = NoDisplacement
-                  | Displacement8  Int
-                  | Displacement32 Int
+                  | Displacement8  Int8
+                  | Displacement32 Int32
 
 
 data Scale = NoScale
@@ -72,7 +77,7 @@ data Scale = NoScale
 
 data Operand = Register  Registers
              | Address   Registers Scale Registers Displacement
-             | Immediate [Int]
+             | Immediate [Word8]
 
 
 data Instruction = Instruction {
@@ -135,20 +140,20 @@ extensionB [_               , _] = 0
 -- Encode a REX byte if necessary.
 -- Operands must be in encoded order.
 -- TODO: Make sure extended registers and high byte registers aren't mixed
-rex :: Int -> Size -> [Operand] -> [Int]
+rex :: Int -> Size -> [Operand] -> [Word8]
 rex op size [op1, op2]
     | (size == QWORD && elem op ops32) ||
       anyExtendedRegisters op1 ||
-      anyExtendedRegisters op2 = [0, 1, 0, 0,
-                                  if size == QWORD then 1 else 0,
-                                  extensionR [op1, op2],
-                                  extensionX [op1, op2],
-                                  extensionB [op1, op2]]
+      anyExtendedRegisters op2 = [bitsToByte [0, 1, 0, 0,
+                                              if size == QWORD then 1 else 0,
+                                              extensionR [op1, op2],
+                                              extensionX [op1, op2],
+                                              extensionB [op1, op2]]]
     | otherwise                = []
 
 
 -- Encode a size override prefix if necessary.
-prefixSize16 :: Int -> Size -> [Int]
+prefixSize16 :: Int -> Size -> [Word8]
 prefixSize16 op size
     | elem op ops32 && size == WORD = [0x66]
     | otherwise                     = []
@@ -156,7 +161,7 @@ prefixSize16 op size
 
 -- Encode any necessary sizing prefixes for an instruction
 -- Operands must be in encoded order.
-sizePrefix :: Int -> Size -> [Operand] -> [Int]
+sizePrefix :: Int -> Size -> [Operand] -> [Word8]
 sizePrefix op size operands = (prefixSize16 op size) ++
                               (rex op size operands)
 
@@ -260,15 +265,14 @@ regBits (Register r) = registerIndex r
 regBits _            = [0, 0, 0]
 
 
--- Generate a ModR/M byte.
+-- Generate a ModR/M byte if necessary.
 -- Operands must be in encoded order.
-modRmByte :: [Operand] -> [Int]
-modRmByte [op1, op2] = modBits [op1, op2] ++ regBits op2 ++ rmBits op1
-
-
--- Test if an opcode requires a ModR/M byte.
-needsModRm :: Int -> Bool
-needsModRm op = not (elem op [0x04, 0x05])
+modRmByte :: Int -> [Operand] -> [Word8]
+modRmByte op [op1, op2]
+    | elem op [0x04, 0x05] = []
+    | otherwise            = [bitsToByte (modBits [op1, op2] ++
+                                          regBits op2 ++
+                                          rmBits op1)]
 
 
 -- Convert a scale into its 2-bit SIB byte representation.
@@ -281,11 +285,12 @@ encodeScale Scale8  = [1, 1]
 
 -- Encode a SIB byte if necessary.
 -- Operands must be in encoded order.
-sibByte :: [Operand] -> [[Int]]
+sibByte :: [Operand] -> [Word8]
 sibByte [Address _    NoScale NoRegister _, _] = []
-sibByte [Address base scale   index      _, _] = [encodeScale scale ++
-                                                  registerIndex index ++
-                                                  registerIndex base]
+sibByte [Address base scale   index      _, _] =
+    [bitsToByte (encodeScale scale ++
+                 registerIndex index ++
+                 registerIndex base)]
 sibByte [_, _]                                 = []
 
 
@@ -378,7 +383,7 @@ main = do
              sizeHint = BYTE,
              operands = [
                  Register AL,
-                 Immediate [123]
+                 Immediate (toBytes (123 :: Word8))
              ]
          },
          Instruction {
@@ -388,7 +393,7 @@ main = do
              sizeHint = DWORD,
              operands = [
                  Register EAX,
-                 Immediate [123]
+                 Immediate (toBytes (123 :: Word8))
              ]
          },
          Instruction {
@@ -398,7 +403,7 @@ main = do
              sizeHint = BYTE,
              operands = [
                  Register CH,
-                 Immediate [123]
+                 Immediate (toBytes (123 :: Word8))
              ]
          },
          Instruction {
@@ -408,7 +413,7 @@ main = do
              sizeHint = QWORD,
              operands = [
                  Address RCX Scale8 RDX (Displacement32 456),
-                 Immediate [0x01, 0xc8]
+                 Immediate (toBytes (456 :: Word16))
              ]
          },
          Instruction {
@@ -418,7 +423,7 @@ main = do
              sizeHint = NoSize,
              operands = [
                  Register RBX,
-                 Immediate [123]
+                 Immediate (toBytes (123 :: Word8))
              ]
          },
          Instruction {
@@ -475,7 +480,7 @@ main = do
             "\tsize  : " ++ (show size) ++ "\n" ++
             "\tprefix: " ++ (intercalate " " (map show prefix)) ++ "\n" ++
             "\top    : " ++ (showHex op " ") ++ "\n" ++
-            "\tmodrm : " ++ (show (modRmByte (encodedOrder op (operands i)))) ++ "\n" ++
+            "\tmodrm : " ++ (show (modRmByte op (encodedOrder op (operands i)))) ++ "\n" ++
             "\tsib   : " ++ (intercalate " " (map show sib)) ++ "\n"
 
     putStrLn (intercalate "\n" (map go instructions))
