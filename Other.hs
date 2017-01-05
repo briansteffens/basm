@@ -140,7 +140,7 @@ extensionB [_               , _] = 0
 -- Encode a REX byte if necessary.
 -- Operands must be in encoded order.
 -- TODO: Make sure extended registers and high byte registers aren't mixed
-rex :: Int -> Size -> [Operand] -> [Word8]
+rex :: Word8 -> Size -> [Operand] -> [Word8]
 rex op size [op1, op2]
     | (size == QWORD && elem op ops32) ||
       anyExtendedRegisters op1 ||
@@ -153,7 +153,7 @@ rex op size [op1, op2]
 
 
 -- Encode a size override prefix if necessary.
-prefixSize16 :: Int -> Size -> [Word8]
+prefixSize16 :: Word8 -> Size -> [Word8]
 prefixSize16 op size
     | elem op ops32 && size == WORD = [0x66]
     | otherwise                     = []
@@ -161,7 +161,7 @@ prefixSize16 op size
 
 -- Encode any necessary sizing prefixes for an instruction
 -- Operands must be in encoded order.
-sizePrefix :: Int -> Size -> [Operand] -> [Word8]
+sizePrefix :: Word8 -> Size -> [Operand] -> [Word8]
 sizePrefix op size operands = (prefixSize16 op size) ++
                               (rex op size operands)
 
@@ -226,14 +226,14 @@ registerIndex r
 
 -- Get the operand directionality for an opcode. Controls the order in which
 -- operands are encoded in the ModR/M byte. 0 is normal, 1 is reversed.
-directionality :: Int -> Int
+directionality :: Word8 -> Int
 directionality op
     | elem op [0x02, 0x03] = 1
     | otherwise            = 0
 
 
 -- Reorder operands based on opcode directionality (flipping them if needed).
-encodedOrder :: Int -> [Operand] -> [Operand]
+encodedOrder :: Word8 -> [Operand] -> [Operand]
 encodedOrder op operands
     | directionality op == 1 = reverse operands
     | otherwise              = operands
@@ -267,7 +267,7 @@ regBits _            = [0, 0, 0]
 
 -- Generate a ModR/M byte if necessary.
 -- Operands must be in encoded order.
-modRmByte :: Int -> [Operand] -> [Word8]
+modRmByte :: Word8 -> [Operand] -> [Word8]
 modRmByte op [op1, op2]
     | elem op [0x04, 0x05] = []
     | otherwise            = [bitsToByte (modBits [op1, op2] ++
@@ -294,8 +294,23 @@ sibByte [Address base scale   index      _, _] =
 sibByte [_, _]                                 = []
 
 
+-- Encode a displacement if one exists.
+-- Operands must be in encoded order.
+encodeDisplacement :: [Operand] -> [Word8]
+encodeDisplacement [Address _ _ _ (Displacement8  d), _] = toBytes d
+encodeDisplacement [Address _ _ _ (Displacement32 d), _] = toBytes d
+encodeDisplacement _                                     = []
+
+
+-- Encode an immediate if one exists.
+-- Operands must be in encoded order.
+encodeImmediate :: [Operand] -> [Word8]
+encodeImmediate [_, Immediate  imm] = imm
+encodeImmediate _                   = []
+
+
 -- Get an opcode based on an assembly command and its operators.
-opcode :: Command -> [Operand] -> Int
+opcode :: Command -> [Operand] -> Word8
 opcode ADD [_,               Register r]
     | elem r registers8                       = 0x00 -- r8, r
     | otherwise                               = 0x01 -- *, r
@@ -311,6 +326,24 @@ opcode ADD [Register r,      Immediate [_]]
     | elem r registers8                       = 0x80 -- r8, imm8
     | otherwise                               = 0x83 -- r!8, imm8
 opcode ADD [_,               Immediate _]     = 0x81 -- *, imm
+
+
+encodeInstruction :: Instruction -> [Word8]
+encodeInstruction i = do
+    let op = opcode (command i) (operands i)
+    let size = case opSize (sizeHint i) (operands i) of
+              Success   s -> s
+              Warn    m s -> trace m s
+              Fail    m   -> error m
+
+    let ordered = encodedOrder op (operands i)
+
+    (sizePrefix op size (operands i)) ++
+        [op] ++
+        (modRmByte op ordered) ++
+        (sibByte ordered) ++
+        (encodeDisplacement ordered) ++
+        (encodeImmediate ordered)
 
 
 main :: IO ()
@@ -481,6 +514,7 @@ main = do
             "\tprefix: " ++ (intercalate " " (map show prefix)) ++ "\n" ++
             "\top    : " ++ (showHex op " ") ++ "\n" ++
             "\tmodrm : " ++ (show (modRmByte op (encodedOrder op (operands i)))) ++ "\n" ++
-            "\tsib   : " ++ (intercalate " " (map show sib)) ++ "\n"
+            "\tsib   : " ++ (intercalate " " (map show sib)) ++ "\n" ++
+            (show (encodeInstruction i)) ++ "\n"
 
     putStrLn (intercalate "\n" (map go instructions))
