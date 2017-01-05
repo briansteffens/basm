@@ -110,6 +110,10 @@ data Instruction = Instruction {
 ops32 = [0x01, 0x03, 0x05, 0x81, 0x83]
 
 
+-- Opcodes in this list need their operators reversed before encoding.
+reversedOpCodes = [0x02, 0x03]
+
+
 -- Check if an operand references any of a list of registers
 anyRegisters :: Operand -> [Registers] -> Bool
 anyRegisters (Immediate _        ) _    = False
@@ -120,11 +124,6 @@ anyRegisters (Address   r1 _ r2 _) regs = elem r1 regs || elem r2 regs
 -- Check if an operand references any extended registers
 anyExtendedRegisters :: Operand -> Bool
 anyExtendedRegisters operand = anyRegisters operand extendedRegisters
-
-
--- Check if an operand references any high-byte registers
-anyHigh8Registers :: Operand -> Bool
-anyHigh8Registers operand = anyRegisters operand registersHigh8
 
 
 -- The optional extension bit for encoding a register.
@@ -187,14 +186,6 @@ registerSize r
     | otherwise          = DWORD
 
 
--- Get the size/width of an operand
-operandSize :: Operand -> Maybe Size
-operandSize (Register r         ) = Just (registerSize r)
-operandSize (Immediate [_]      ) = Just BYTE             -- imm8
-operandSize (Immediate [_,_,_,_]) = Just DWORD            -- imm32
-operandSize (Address    _ _ _ _ ) = Nothing
-
-
 -- Infer the operation size based on its operands, if possible.
 inferOpSize :: [Operand] -> Result Size
 inferOpSize [Address _ _ _ _, Immediate _    ] = Success NoSize
@@ -236,19 +227,11 @@ registerIndex r
     | elem r [BH, DIL, DI, EDI, RDI, R15B, R15W, R15D, R15] = [1, 1, 1]
 
 
--- Get the operand directionality for an opcode. Controls the order in which
--- operands are encoded in the ModR/M byte. 0 is normal, 1 is reversed.
-directionality :: Word8 -> Int
-directionality op
-    | elem op [0x02, 0x03] = 1
-    | otherwise            = 0
-
-
 -- Reorder operands based on opcode directionality (flipping them if needed).
 encodedOrder :: Word8 -> [Operand] -> [Operand]
 encodedOrder op operands
-    | directionality op == 1 = reverse operands
-    | otherwise              = operands
+    | elem op reversedOpCodes = reverse operands
+    | otherwise               = operands
 
 
 -- Generate the first two bits of ModR/M field.
