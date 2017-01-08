@@ -82,8 +82,9 @@ registers64 = [RAX, RBX, RCX, RDX, RBP, RSP, RSI, RDI, RIP] ++
 
 
 data Displacement = NoDisplacement
-                  | Displacement8  Int8
-                  | Displacement32 Int32
+                  | Displacement8       Int8
+                  | Displacement32      Int32
+                  | DisplacementSymbol  String
 
 
 data Scale = NoScale
@@ -92,9 +93,13 @@ data Scale = NoScale
            | Scale8
 
 
+data ImmediateDescriptor = Literal [Word8]
+                         | Symbol  String
+
+
 data Operand = Register  Registers
              | Address   Registers Scale Registers Displacement
-             | Immediate [Word8]
+             | Immediate ImmediateDescriptor
 
 
 data Instruction = Instruction {
@@ -216,6 +221,7 @@ opSize hint operands = applySizeHint (inferOpSize operands) hint
 
 -- Get the least significant 3 bits for a register.
 registerIndex :: Registers -> [Int]
+registerIndex NoRegister                                    = [0, 0, 0]
 registerIndex r
     | elem r [AL, AX, EAX, RAX, R8B, R8W, R8D, R8]          = [0, 0, 0]
     | elem r [CL, CX, ECX, RCX, R9B, R9W, R9D, R9]          = [0, 0, 1]
@@ -236,12 +242,15 @@ encodedOrder op operands
 
 -- Generate the first two bits of ModR/M field.
 modBits :: [Operand] -> [Int]
-modBits [Address  _   _ _  NoDisplacement   , _] = [0, 0]
-modBits [Address  RIP _ _ (Displacement32 _), _] = [0, 0]
-modBits [Address  EIP _ _ (Displacement32 _), _] = [0, 0]
-modBits [Address  _   _ _ (Displacement8  _), _] = [0, 1]
-modBits [Address  _   _ _ (Displacement32 _), _] = [1, 0]
-modBits [Register _                         , _] = [1, 1]
+modBits [Address  _   _ _  NoDisplacement       , _] = [0, 0]
+modBits [Address  RIP _ _ (Displacement32     _), _] = [0, 0]
+modBits [Address  RIP _ _ (DisplacementSymbol _), _] = [0, 0]
+modBits [Address  EIP _ _ (Displacement32     _), _] = [0, 0]
+modBits [Address  EIP _ _ (DisplacementSymbol _), _] = [0, 0]
+modBits [Address  _   _ _ (Displacement8      _), _] = [0, 1]
+modBits [Address  _   _ _ (Displacement32     _), _] = [1, 0]
+modBits [Address  _   _ _ (DisplacementSymbol _), _] = [1, 0]
+modBits [Register _                             , _] = [1, 1]
 
 
 -- Generate the R/M bits of a ModR/M byte.
@@ -287,40 +296,61 @@ sibByte [_, _]                                 = []
 
 
 -- Encode a displacement if one exists.
-encodeDisplacement :: [Operand] -> [Word8]
-encodeDisplacement [Address _ _ _ (Displacement8  d), _] = toBytes d
-encodeDisplacement [Address _ _ _ (Displacement32 d), _] = toBytes d
-encodeDisplacement _                                     = []
+displacement :: [Operand] -> [Word8]
+displacement [Address _ _ _ (Displacement8      d), _] = toBytes d
+displacement [Address _ _ _ (Displacement32     d), _] = toBytes d
+displacement [Address _ _ _ (DisplacementSymbol _), _] = [0, 0, 0, 0]
+displacement _                                         = []
 
 
 -- Encode an immediate if one exists.
-encodeImmediate :: [Operand] -> [Word8]
-encodeImmediate [_, Immediate  imm] = imm
-encodeImmediate _                   = []
+immediate :: [Operand] -> [Word8]
+immediate [_, Immediate (Literal imm)] = imm
+immediate [_, Immediate (Symbol  _  )] = [0x00, 0x00, 0x00, 0x00]
+immediate _                            = []
 
 
 -- Get an opcode based on an assembly command and its operators.
 -- Operands should not be in encoded order.
 opcode :: Command -> [Operand] -> Word8
 opcode ADD [_,               Register r]
-    | elem r registers8                       = 0x00 -- r8, r
-    | otherwise                               = 0x01 -- *, r
+    | elem r registers8                               = 0x00 -- r8, r
+    | otherwise                                       = 0x01 -- *, r
 opcode ADD [Register r,      Address _ _ _ _]
-    | elem r registers8                       = 0x02 -- r8, addr
-    | otherwise                               = 0x03 -- r!8, addr
-opcode ADD [Register AL,     Immediate _]     = 0x04 -- AL, imm
-opcode ADD [Register AX,     Immediate _]     = 0x05 -- AX, imm
-opcode ADD [Register EAX,    Immediate _]     = 0x05 -- EAX, imm
-opcode ADD [Register RAX,    Immediate _]     = 0x05 -- RAX, imm
-opcode ADD [Address _ _ _ _, Immediate [_]]   = 0x80 -- addr, imm8
-opcode ADD [Register r,      Immediate [_]]
-    | elem r registers8                       = 0x80 -- r8, imm8
-    | otherwise                               = 0x83 -- r!8, imm8
-opcode ADD [_,               Immediate _]     = 0x81 -- *, imm
+    | elem r registers8                               = 0x02 -- r8, addr
+    | otherwise                                       = 0x03 -- r!8, addr
+opcode ADD [Register AL,     Immediate _]             = 0x04 -- AL, imm
+opcode ADD [Register AX,     Immediate _]             = 0x05 -- AX, imm
+opcode ADD [Register EAX,    Immediate _]             = 0x05 -- EAX, imm
+opcode ADD [Register RAX,    Immediate _]             = 0x05 -- RAX, imm
+opcode ADD [Address _ _ _ _, Immediate (Literal [_])] = 0x80 -- addr, imm8
+opcode ADD [Register r,      Immediate (Literal [_])]
+    | elem r registers8                               = 0x80 -- r8, imm8
+    | otherwise                                       = 0x83 -- r!8, imm8
+opcode ADD [_,               Immediate _]             = 0x81 -- *, imm
 
 
--- Encode an instruction into bytes.
-encodeInstruction :: Instruction -> [Word8]
+data SymbolOffset = SymbolOffset {
+    symbolName   :: String,
+    symbolOffset :: Int
+}
+
+
+-- If a displacement symbol is present, return the symbol name
+displacementSymbol :: [Operand] -> Maybe String
+displacementSymbol [Address _ _ _ (DisplacementSymbol s), _] = Just s
+displacementSymbol _                                         = Nothing
+
+
+-- If an immediate symbol is present, return the symbol name
+immediateSymbol :: [Operand] -> Maybe String
+immediateSymbol [_, Immediate (Symbol s)] = Just s
+immediateSymbol _                         = Nothing
+
+
+-- Encode an instruction into bytes. Returns the encoded bytes as well as a
+-- list of any symbol offsets.
+encodeInstruction :: Instruction -> ([Word8], [SymbolOffset])
 encodeInstruction i = do
     let op = opcode (command i) (operands i)
     let ordered = encodedOrder op (operands i)
@@ -330,12 +360,24 @@ encodeInstruction i = do
               Warn    m s -> trace m s
               Fail    m   -> error m
 
-    (sizePrefix op size (operands i)) ++
-        [op] ++
-        (modRmByte op ordered) ++
-        (sibByte ordered) ++
-        (encodeDisplacement ordered) ++
-        (encodeImmediate ordered)
+    let commandBytes = (sizePrefix op size (operands i)) ++
+                       [op] ++
+                       (modRmByte op ordered) ++
+                       (sibByte ordered)
+
+    let dispBytes = displacement ordered
+    let immBytes = immediate ordered
+
+    let dOffset = case displacementSymbol ordered of
+                 Just s  -> [SymbolOffset s (length commandBytes)]
+                 Nothing -> []
+
+    let iOffset = case immediateSymbol ordered of
+                 Just s  -> [SymbolOffset s ((length commandBytes) +
+                                             (length dispBytes))]
+                 Nothing -> []
+
+    (commandBytes ++ dispBytes ++ immBytes, dOffset ++ iOffset)
 
 
 main :: IO ()
@@ -408,7 +450,7 @@ main = do
              sizeHint = BYTE,
              operands = [
                  Register AL,
-                 Immediate (toBytes (123 :: Word8))
+                 Immediate (Literal (toBytes (123 :: Word8)))
              ]
          },
          Instruction {
@@ -418,7 +460,7 @@ main = do
              sizeHint = DWORD,
              operands = [
                  Register EAX,
-                 Immediate (toBytes (123 :: Word8))
+                 Immediate (Literal (toBytes (123 :: Word8)))
              ]
          },
          Instruction {
@@ -428,7 +470,7 @@ main = do
              sizeHint = BYTE,
              operands = [
                  Register CH,
-                 Immediate (toBytes (123 :: Word8))
+                 Immediate (Literal (toBytes (123 :: Word8)))
              ]
          },
          Instruction {
@@ -438,7 +480,7 @@ main = do
              sizeHint = QWORD,
              operands = [
                  Address RCX Scale8 RDX (Displacement32 456),
-                 Immediate (toBytes (456 :: Word16))
+                 Immediate (Literal (toBytes (456 :: Word16)))
              ]
          },
          Instruction {
@@ -448,7 +490,7 @@ main = do
              sizeHint = NoSize,
              operands = [
                  Register RBX,
-                 Immediate (toBytes (123 :: Word8))
+                 Immediate (Literal (toBytes (123 :: Word8)))
              ]
          },
          Instruction {
@@ -470,7 +512,61 @@ main = do
                  Register AX,
                  Register R8W
              ]
-         }]
+         },
+         Instruction {
+             source = "add rbx, sym3",
+             labels = [],
+             command = ADD,
+             sizeHint = NoSize,
+             operands = [
+                 Register RBX,
+                 Immediate (Symbol "sym3")
+             ]
+         },
+         Instruction {
+             source = "add rbx, [sym3]",
+             labels = [],
+             command = ADD,
+             sizeHint = NoSize,
+             operands = [
+                 Register RBX,
+                 Address NoRegister NoScale NoRegister
+                         (DisplacementSymbol "sym3")
+             ]
+         },
+         Instruction {
+             source = "add rbx, [rcx+sym3]",
+             labels = [],
+             command = ADD,
+             sizeHint = NoSize,
+             operands = [
+                 Register RBX,
+                 Address RCX NoScale NoRegister (DisplacementSymbol "sym3")
+             ]
+         },
+         Instruction {
+             source = "add [sym3], rbx",
+             labels = [],
+             command = ADD,
+             sizeHint = NoSize,
+             operands = [
+                 Address NoRegister NoScale NoRegister
+                         (DisplacementSymbol "sym3"),
+                 Register RBX
+             ]
+         },
+         Instruction {
+             source = "add [sym3], sym4",
+             labels = [],
+             command = ADD,
+             sizeHint = QWORD,
+             operands = [
+                 Address NoRegister NoScale NoRegister
+                         (DisplacementSymbol "sym3"),
+                 Immediate (Symbol "sym4")
+             ]
+         }
+         ]
 
     let go i = do
         let op = opcode (command i) (operands i)
@@ -481,12 +577,17 @@ main = do
                   Fail    m   -> error m
         let prefix = sizePrefix op size ordered
         let sib = sibByte ordered
+        let result = encodeInstruction i
+        let encoded = fst result
+        let offsets = snd result
+        let showOffset o = (symbolName o) ++ "=" ++ (show (symbolOffset o))
         (source i) ++ "\n" ++
             "\tsize  : " ++ (show size) ++ "\n" ++
             "\tprefix: " ++ (intercalate " " (map show prefix)) ++ "\n" ++
             "\top    : " ++ (showHex op " ") ++ "\n" ++
             "\tmodrm : " ++ (show (modRmByte op ordered)) ++ "\n" ++
             "\tsib   : " ++ (intercalate " " (map show sib)) ++ "\n" ++
-            (show (encodeInstruction i)) ++ "\n"
+            "\toffset: " ++ (intercalate ", " (map showOffset offsets)) ++ "\n" ++
+            show encoded ++ "\n"
 
     putStrLn (intercalate "\n" (map go instructions))
