@@ -111,6 +111,23 @@ data Instruction = Instruction {
 }
 
 
+data Encoded = Encoded {
+    sizePrefix   :: [Word8],
+    rex          :: [Word8],
+    op           :: [Word8],
+    modrm        :: [Word8],
+    sib          :: [Word8],
+    displacement :: [Word8],
+    immediate    :: [Word8]
+}
+
+
+data SymbolOffset = SymbolOffset {
+    symbolName   :: String,
+    symbolOffset :: Int
+}
+
+
 -- Opcodes that default to 32-bit operation size without any prefix bytes
 ops32 = [0x01, 0x03, 0x05, 0x81, 0x83]
 
@@ -157,8 +174,8 @@ extensionB [_               , _] = 0
 
 -- Encode a REX byte if necessary.
 -- TODO: Make sure extended registers and high byte registers aren't mixed
-rex :: Word8 -> Size -> [Operand] -> [Word8]
-rex op size [op1, op2]
+encodeRex :: Word8 -> Size -> [Operand] -> [Word8]
+encodeRex op size [op1, op2]
     | (size == QWORD && elem op ops32) ||
       anyExtendedRegisters op1 ||
       anyExtendedRegisters op2 = [bitsToByte [0, 1, 0, 0,
@@ -170,16 +187,10 @@ rex op size [op1, op2]
 
 
 -- Encode a size override prefix if necessary.
-prefixSize16 :: Word8 -> Size -> [Word8]
-prefixSize16 op size
+encodeSizePrefix :: Word8 -> Size -> [Word8]
+encodeSizePrefix op size
     | elem op ops32 && size == WORD = [0x66]
     | otherwise                     = []
-
-
--- Encode any necessary sizing prefixes for an instruction
-sizePrefix :: Word8 -> Size -> [Operand] -> [Word8]
-sizePrefix op size operands = (prefixSize16 op size) ++
-                              (rex op size operands)
 
 
 -- Get the size/width of a register
@@ -269,8 +280,8 @@ regBits _            = [0, 0, 0]
 
 
 -- Generate a ModR/M byte if necessary.
-modRmByte :: Word8 -> [Operand] -> [Word8]
-modRmByte op [op1, op2]
+encodeModRm :: Word8 -> [Operand] -> [Word8]
+encodeModRm op [op1, op2]
     | elem op [0x04, 0x05] = []
     | otherwise            = [bitsToByte (modBits [op1, op2] ++
                                           regBits op2 ++
@@ -286,28 +297,28 @@ encodeScale Scale8  = [1, 1]
 
 
 -- Encode a SIB byte if necessary.
-sibByte :: [Operand] -> [Word8]
-sibByte [Address _    NoScale NoRegister _, _] = []
-sibByte [Address base scale   index      _, _] =
+encodeSib :: [Operand] -> [Word8]
+encodeSib [Address _    NoScale NoRegister _, _] = []
+encodeSib [Address base scale   index      _, _] =
     [bitsToByte (encodeScale scale ++
                  registerIndex index ++
                  registerIndex base)]
-sibByte [_, _]                                 = []
+encodeSib [_, _]                                 = []
 
 
 -- Encode a displacement if one exists.
-displacement :: [Operand] -> [Word8]
-displacement [Address _ _ _ (Displacement8      d), _] = toBytes d
-displacement [Address _ _ _ (Displacement32     d), _] = toBytes d
-displacement [Address _ _ _ (DisplacementSymbol _), _] = [0, 0, 0, 0]
-displacement _                                         = []
+encodeDisplacement :: [Operand] -> [Word8]
+encodeDisplacement [Address _ _ _ (Displacement8      d), _] = toBytes d
+encodeDisplacement [Address _ _ _ (Displacement32     d), _] = toBytes d
+encodeDisplacement [Address _ _ _ (DisplacementSymbol _), _] = [0, 0, 0, 0]
+encodeDisplacement _                                         = []
 
 
 -- Encode an immediate if one exists.
-immediate :: [Operand] -> [Word8]
-immediate [_, Immediate (Literal imm)] = imm
-immediate [_, Immediate (Symbol  _  )] = [0x00, 0x00, 0x00, 0x00]
-immediate _                            = []
+encodeImmediate :: [Operand] -> [Word8]
+encodeImmediate [_, Immediate (Literal imm)] = imm
+encodeImmediate [_, Immediate (Symbol  _  )] = [0x00, 0x00, 0x00, 0x00]
+encodeImmediate _                            = []
 
 
 -- Get an opcode based on an assembly command and its operators.
@@ -330,27 +341,8 @@ opcode ADD [Register r,      Immediate (Literal [_])]
 opcode ADD [_,               Immediate _]             = 0x81 -- *, imm
 
 
-data SymbolOffset = SymbolOffset {
-    symbolName   :: String,
-    symbolOffset :: Int
-}
-
-
--- If a displacement symbol is present, return the symbol name
-displacementSymbol :: [Operand] -> Maybe String
-displacementSymbol [Address _ _ _ (DisplacementSymbol s), _] = Just s
-displacementSymbol _                                         = Nothing
-
-
--- If an immediate symbol is present, return the symbol name
-immediateSymbol :: [Operand] -> Maybe String
-immediateSymbol [_, Immediate (Symbol s)] = Just s
-immediateSymbol _                         = Nothing
-
-
--- Encode an instruction into bytes. Returns the encoded bytes as well as a
--- list of any symbol offsets.
-encodeInstruction :: Instruction -> ([Word8], [SymbolOffset])
+-- Encode an instruction into bytes.
+encodeInstruction :: Instruction -> Encoded
 encodeInstruction i = do
     let op = opcode (command i) (operands i)
     let ordered = encodedOrder op (operands i)
@@ -360,24 +352,51 @@ encodeInstruction i = do
               Warn    m s -> trace m s
               Fail    m   -> error m
 
-    let commandBytes = (sizePrefix op size (operands i)) ++
-                       [op] ++
-                       (modRmByte op ordered) ++
-                       (sibByte ordered)
+    Encoded {
+        sizePrefix   = encodeSizePrefix op size,
+        rex          = encodeRex op size ordered,
+        op           = [op],
+        modrm        = encodeModRm op ordered,
+        sib          = encodeSib ordered,
+        displacement = encodeDisplacement ordered,
+        immediate    = encodeImmediate ordered
+    }
 
-    let dispBytes = displacement ordered
-    let immBytes = immediate ordered
 
-    let dOffset = case displacementSymbol ordered of
-                 Just s  -> [SymbolOffset s (length commandBytes)]
-                 Nothing -> []
+-- If a displacement symbol is present, return the symbol name.
+displacementSymbol :: [Operand] -> Maybe String
+displacementSymbol [Address _ _ _ (DisplacementSymbol s), _] = Just s
+displacementSymbol _                                         = Nothing
 
-    let iOffset = case immediateSymbol ordered of
-                 Just s  -> [SymbolOffset s ((length commandBytes) +
-                                             (length dispBytes))]
-                 Nothing -> []
 
-    (commandBytes ++ dispBytes ++ immBytes, dOffset ++ iOffset)
+-- If an immediate symbol is present, return the symbol name.
+immediateSymbol :: [Operand] -> Maybe String
+immediateSymbol [_, Immediate (Symbol s)] = Just s
+immediateSymbol _                         = Nothing
+
+
+-- Extract any symbol offsets from an encoded instruction.
+symbolOffsets :: Instruction -> Encoded -> Int -> [SymbolOffset]
+symbolOffsets inst encoded offset = do
+    let commandByteLen = offset +
+                         (length (sizePrefix encoded)) +
+                         (length (rex encoded)) +
+                         (length (op encoded)) +
+                         (length (modrm encoded)) +
+                         (length (sib encoded))
+
+    let ordered = encodedOrder (head (op encoded)) (operands inst)
+
+    let disp = case displacementSymbol ordered of
+              Just s  -> [SymbolOffset s commandByteLen]
+              Nothing -> []
+
+    let imm = case immediateSymbol ordered of
+              Just s  -> [SymbolOffset s (commandByteLen +
+                                         (length (displacement encoded)))]
+              Nothing -> []
+
+    disp ++ imm
 
 
 main :: IO ()
@@ -569,25 +588,17 @@ main = do
          ]
 
     let go i = do
-        let op = opcode (command i) (operands i)
-        let ordered = encodedOrder op (operands i)
-        let size = case opSize (sizeHint i) ordered of
-                  Success   s -> s
-                  Warn    m s -> trace m s
-                  Fail    m   -> error m
-        let prefix = sizePrefix op size ordered
-        let sib = sibByte ordered
-        let result = encodeInstruction i
-        let encoded = fst result
-        let offsets = snd result
+        let e = encodeInstruction i
+        let offsets = symbolOffsets i e 0
+
         let showOffset o = (symbolName o) ++ "=" ++ (show (symbolOffset o))
+
         (source i) ++ "\n" ++
-            "\tsize  : " ++ (show size) ++ "\n" ++
-            "\tprefix: " ++ (intercalate " " (map show prefix)) ++ "\n" ++
-            "\top    : " ++ (showHex op " ") ++ "\n" ++
-            "\tmodrm : " ++ (show (modRmByte op ordered)) ++ "\n" ++
-            "\tsib   : " ++ (intercalate " " (map show sib)) ++ "\n" ++
-            "\toffset: " ++ (intercalate ", " (map showOffset offsets)) ++ "\n" ++
-            show encoded ++ "\n"
+            "\tsize  : " ++ (show (sizePrefix e)) ++ "\n" ++
+            "\trex   : " ++ (show (rex e)) ++ "\n" ++
+            "\top    : " ++ (show (op e)) ++ "\n" ++
+            "\tmodrm : " ++ (show (modrm e)) ++ "\n" ++
+            "\tsib   : " ++ (show (sib e)) ++ "\n" ++
+            "\toffset: " ++ (intercalate ", " (map showOffset offsets)) ++ "\n"
 
     putStrLn (intercalate "\n" (map go instructions))
