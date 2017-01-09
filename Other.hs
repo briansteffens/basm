@@ -122,12 +122,6 @@ data Encoded = Encoded {
 }
 
 
-data NamedOffset = NamedOffset {
-    name   :: String,
-    offset :: Int
-}
-
-
 -- Opcodes that default to 32-bit operation size without any prefix bytes
 ops32 = [0x01, 0x03, 0x05, 0x81, 0x83]
 
@@ -398,31 +392,30 @@ immediateSymbol _                         = Nothing
 
 
 -- Extract any symbol offsets from an encoded instruction.
-symbolOffsets :: Instruction -> Encoded -> Int -> [NamedOffset]
-symbolOffsets inst encoded offset = do
+symbolOffsets :: Instruction -> Encoded -> Int -> [(String, Int)]
+symbolOffsets inst enc offset = do
     let commandByteLen = offset +
-                         (length (sizePrefix encoded)) +
-                         (length (rex encoded)) +
-                         (length (op encoded)) +
-                         (length (modrm encoded)) +
-                         (length (sib encoded))
+                         (length (sizePrefix enc)) +
+                         (length (rex enc)) +
+                         (length (op enc)) +
+                         (length (modrm enc)) +
+                         (length (sib enc))
 
-    let ordered = encodedOrder (head (op encoded)) (operands inst)
+    let ordered = encodedOrder (head (op enc)) (operands inst)
 
     let disp = case displacementSymbol ordered of
-              Just s  -> [NamedOffset s commandByteLen]
+              Just s  -> [(s, commandByteLen)]
               Nothing -> []
 
     let imm = case immediateSymbol ordered of
-              Just s  -> [NamedOffset s (commandByteLen +
-                                        (length (displacement encoded)))]
+              Just s  -> [(s, commandByteLen + (length (displacement enc)))]
               Nothing -> []
 
     disp ++ imm
 
 
 -- Extract all symbol offsets from a list of encoded instructions.
-allSymbolOffsets :: [(Instruction, Encoded)] -> Int -> [NamedOffset]
+allSymbolOffsets :: [(Instruction, Encoded)] -> Int -> [(String, Int)]
 allSymbolOffsets [] _ = []
 allSymbolOffsets ((inst, enc):xs) offset = do
     let inner = allSymbolOffsets xs (offset + (encodedLength enc))
@@ -430,8 +423,19 @@ allSymbolOffsets ((inst, enc):xs) offset = do
     current ++ inner
 
 
--- Encode a list of instructions into bytes and a list of any symbol offsets.
-encodeInstructions :: [Instruction] -> ([Word8], [NamedOffset])
+-- Extract all label offsets from a list of encoded instructions.
+allLabelOffsets :: [(Instruction, Encoded)] -> Int -> [(String, Int)]
+allLabelOffsets [] _ = []
+allLabelOffsets ((inst, enc):xs) offsetCurrent = do
+    let inner = allLabelOffsets xs (offsetCurrent + (encodedLength enc))
+    let current = map (\l -> (l, offsetCurrent)) (labels inst)
+    current ++ inner
+
+
+-- Encode a list of instructions into bytes and lists of any symbol offsets
+-- and label offsets.
+encodeInstructions :: [Instruction] -> ([Word8], [(String, Int)],
+                                                 [(String, Int)])
 encodeInstructions instructions = do
     let encodeOne i = (i, encodeInstruction i)
     let encoded = map encodeOne instructions
@@ -439,9 +443,10 @@ encodeInstructions instructions = do
     let bytes (_, e) = encodedBytes e
     let allBytes = concat (map bytes encoded)
 
-    let offsets = allSymbolOffsets encoded 0
+    let symbols = allSymbolOffsets encoded 0
+    let labels = allLabelOffsets encoded 0
 
-    (allBytes, offsets)
+    (allBytes, symbols, labels)
 
 
 main :: IO ()
@@ -449,7 +454,7 @@ main = do
     let instructions = [
          Instruction {
              source = "add byte al, bl",
-             labels = [],
+             labels = ["first"],
              command = ADD,
              sizeHint = BYTE,
              operands = [
@@ -479,7 +484,7 @@ main = do
          },
          Instruction {
              source = "add qword [rax], rbx",
-             labels = [],
+             labels = ["fourth"],
              command = ADD,
              sizeHint = QWORD,
              operands = [
@@ -632,7 +637,7 @@ main = do
          }
          ]
 
-    let showOffset o = (name o) ++ "=" ++ (show (offset o))
+    let showOffset (n, o) = n ++ "=" ++ (show o)
 
     let go i = do
         let e = encodeInstruction i
@@ -648,6 +653,7 @@ main = do
 
     putStrLn (intercalate "\n" (map go instructions))
 
-    let (bytes, offsets) = encodeInstructions instructions
+    let (bytes, symbols, labels) = encodeInstructions instructions
     putStrLn (show bytes)
-    putStrLn (intercalate ", " (map showOffset offsets))
+    putStrLn ("symbols: " ++ (intercalate ", " (map showOffset symbols)))
+    putStrLn ("labels: " ++ (intercalate ", " (map showOffset labels)))
