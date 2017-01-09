@@ -122,9 +122,9 @@ data Encoded = Encoded {
 }
 
 
-data SymbolOffset = SymbolOffset {
-    symbolName   :: String,
-    symbolOffset :: Int
+data NamedOffset = NamedOffset {
+    name   :: String,
+    offset :: Int
 }
 
 
@@ -363,6 +363,28 @@ encodeInstruction i = do
     }
 
 
+-- Get the total number of encoded bytes for an instruction.
+encodedLength :: Encoded -> Int
+encodedLength e = length (sizePrefix   e) +
+                  length (rex          e) +
+                  length (op           e) +
+                  length (modrm        e) +
+                  length (sib          e) +
+                  length (displacement e) +
+                  length (immediate    e)
+
+
+-- Extract encoded bytes from an instruction.
+encodedBytes :: Encoded -> [Word8]
+encodedBytes e = (sizePrefix   e) ++
+                 (rex          e) ++
+                 (op           e) ++
+                 (modrm        e) ++
+                 (sib          e) ++
+                 (displacement e) ++
+                 (immediate    e)
+
+
 -- If a displacement symbol is present, return the symbol name.
 displacementSymbol :: [Operand] -> Maybe String
 displacementSymbol [Address _ _ _ (DisplacementSymbol s), _] = Just s
@@ -376,7 +398,7 @@ immediateSymbol _                         = Nothing
 
 
 -- Extract any symbol offsets from an encoded instruction.
-symbolOffsets :: Instruction -> Encoded -> Int -> [SymbolOffset]
+symbolOffsets :: Instruction -> Encoded -> Int -> [NamedOffset]
 symbolOffsets inst encoded offset = do
     let commandByteLen = offset +
                          (length (sizePrefix encoded)) +
@@ -388,15 +410,38 @@ symbolOffsets inst encoded offset = do
     let ordered = encodedOrder (head (op encoded)) (operands inst)
 
     let disp = case displacementSymbol ordered of
-              Just s  -> [SymbolOffset s commandByteLen]
+              Just s  -> [NamedOffset s commandByteLen]
               Nothing -> []
 
     let imm = case immediateSymbol ordered of
-              Just s  -> [SymbolOffset s (commandByteLen +
-                                         (length (displacement encoded)))]
+              Just s  -> [NamedOffset s (commandByteLen +
+                                        (length (displacement encoded)))]
               Nothing -> []
 
     disp ++ imm
+
+
+-- Extract all symbol offsets from a list of encoded instructions.
+allSymbolOffsets :: [(Instruction, Encoded)] -> Int -> [NamedOffset]
+allSymbolOffsets [] _ = []
+allSymbolOffsets ((inst, enc):xs) offset = do
+    let inner = allSymbolOffsets xs (offset + (encodedLength enc))
+    let current = symbolOffsets inst enc offset
+    current ++ inner
+
+
+-- Encode a list of instructions into bytes and a list of any symbol offsets.
+encodeInstructions :: [Instruction] -> ([Word8], [NamedOffset])
+encodeInstructions instructions = do
+    let encodeOne i = (i, encodeInstruction i)
+    let encoded = map encodeOne instructions
+
+    let bytes (_, e) = encodedBytes e
+    let allBytes = concat (map bytes encoded)
+
+    let offsets = allSymbolOffsets encoded 0
+
+    (allBytes, offsets)
 
 
 main :: IO ()
@@ -587,11 +632,11 @@ main = do
          }
          ]
 
+    let showOffset o = (name o) ++ "=" ++ (show (offset o))
+
     let go i = do
         let e = encodeInstruction i
         let offsets = symbolOffsets i e 0
-
-        let showOffset o = (symbolName o) ++ "=" ++ (show (symbolOffset o))
 
         (source i) ++ "\n" ++
             "\tsize  : " ++ (show (sizePrefix e)) ++ "\n" ++
@@ -602,3 +647,7 @@ main = do
             "\toffset: " ++ (intercalate ", " (map showOffset offsets)) ++ "\n"
 
     putStrLn (intercalate "\n" (map go instructions))
+
+    let (bytes, offsets) = encodeInstructions instructions
+    putStrLn (show bytes)
+    putStrLn (intercalate ", " (map showOffset offsets))
