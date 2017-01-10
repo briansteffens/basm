@@ -9,6 +9,7 @@ import Numeric (showHex)
 import Debug.Trace (trace)
 
 import Shared
+import Definitions
 
 
 -- NOTE FOR EDITING THIS FILE:
@@ -33,84 +34,6 @@ data Result a = Success a
               | Fail String
 
 
-data Command = ADD
-
-
-data Size = BYTE
-          | WORD
-          | DWORD
-          | QWORD
-          | NoSize
-          deriving (Eq, Show)
-
-
-data Registers = NoRegister
-               | RAX  | RBX  | RCX  | RDX  | RBP  | RSP  | RSI  | RDI
-               | EAX  | EBX  | ECX  | EDX  | EBP  | ESP  | ESI  | EDI
-               |  AX  |  BX  |  CX  |  DX  |  BP  |  SP  |  SI  |  DI
-               |  AL  |  BL  |  CL  |  DL  |  BPL |  SPL |  SIL |  DIL
-               |  AH  |  BH  |  CH  |  DH
-               | R8   | R9   | R10  | R11  | R12  | R13  | R14  | R15
-               | R8D  | R9D  | R10D | R11D | R12D | R13D | R14D | R15D
-               | R8W  | R9W  | R10W | R11W | R12W | R13W | R14W | R15W
-               | R8B  | R9B  | R10B | R11B | R12B | R13B | R14B | R15B
-               | RIP  | EIP
-               deriving Eq
-
-
-registersHigh8 = [AH, BH, CH, DH]
-
-
-registers8 = registersHigh8 ++
-             [AL, BL, CL, DL,
-              BPL, SPL, SIL, DIL,
-              R8B, R9B, R10B, R11B, R12B, R13B, R14B, R15B]
-
-
-registers16 = [AX, BX, CX, DX, BP, SP, SI, DI,
-               R8W, R9W, R10W, R11W, R12W, R13W, R14W, R15W]
-
-
-extendedRegisters = [R8,  R9,  R10,  R11,  R12,  R13,  R14,  R15,
-                     R8D, R9D, R10D, R11D, R12D, R13D, R14D, R15D,
-                     R8W, R9W, R10W, R11W, R12W, R13W, R14W, R15W,
-                     R8B, R9B, R10B, R11B, R12B, R13B, R14B, R15B]
-
-
-registers64 = [RAX, RBX, RCX, RDX, RBP, RSP, RSI, RDI, RIP] ++
-              extendedRegisters
-
-
-data Displacement = NoDisplacement
-                  | Displacement8       Int8
-                  | Displacement32      Int32
-                  | DisplacementSymbol  String
-
-
-data Scale = NoScale
-           | Scale2
-           | Scale4
-           | Scale8
-
-
-data ImmediateDescriptor = Literal [Word8]
-                         | Symbol  String
-
-
-data Operand = Register  Registers
-             | Address   Registers Scale Registers Displacement
-             | Immediate ImmediateDescriptor
-
-
-data Instruction = Instruction {
-    source   :: String,
-    labels   :: [String],
-    sizeHint :: Size,
-    command  :: Command,
-    operands :: [Operand]
-}
-
-
 data Encoded = Encoded {
     sizePrefix   :: [Word8],
     rex          :: [Word8],
@@ -119,6 +42,20 @@ data Encoded = Encoded {
     sib          :: [Word8],
     displacement :: [Word8],
     immediate    :: [Word8]
+}
+
+
+data NamedOffset = NamedOffset {
+    name   :: String,
+    offset :: Int
+}
+
+
+data EncodedSection = EncodedSection {
+    section :: Section,
+    bytes   :: [Word8],
+    labels  :: [NamedOffset],
+    symbols :: [NamedOffset]
 }
 
 
@@ -392,7 +329,7 @@ immediateSymbol _                         = Nothing
 
 
 -- Extract any symbol offsets from an encoded instruction.
-symbolOffsets :: Instruction -> Encoded -> Int -> [(String, Int)]
+symbolOffsets :: Instruction -> Encoded -> Int -> [NamedOffset]
 symbolOffsets inst enc offset = do
     let commandByteLen = offset +
                          (length (sizePrefix enc)) +
@@ -403,19 +340,21 @@ symbolOffsets inst enc offset = do
 
     let ordered = encodedOrder (head (op enc)) (operands inst)
 
+    let make n o = NamedOffset { name = n, offset = o }
+
     let disp = case displacementSymbol ordered of
-              Just s  -> [(s, commandByteLen)]
+              Just s  -> [make s commandByteLen]
               Nothing -> []
 
     let imm = case immediateSymbol ordered of
-              Just s  -> [(s, commandByteLen + (length (displacement enc)))]
-              Nothing -> []
+             Just s  -> [make s (commandByteLen + (length (displacement enc)))]
+             Nothing -> []
 
     disp ++ imm
 
 
 -- Extract all symbol offsets from a list of encoded instructions.
-allSymbolOffsets :: [(Instruction, Encoded)] -> Int -> [(String, Int)]
+allSymbolOffsets :: [(Instruction, Encoded)] -> Int -> [NamedOffset]
 allSymbolOffsets [] _ = []
 allSymbolOffsets ((inst, enc):xs) offset = do
     let inner = allSymbolOffsets xs (offset + (encodedLength enc))
@@ -424,220 +363,223 @@ allSymbolOffsets ((inst, enc):xs) offset = do
 
 
 -- Extract all label offsets from a list of encoded instructions.
-allLabelOffsets :: [(Instruction, Encoded)] -> Int -> [(String, Int)]
+allLabelOffsets :: [(Instruction, Encoded)] -> Int -> [NamedOffset]
 allLabelOffsets [] _ = []
 allLabelOffsets ((inst, enc):xs) offsetCurrent = do
     let inner = allLabelOffsets xs (offsetCurrent + (encodedLength enc))
-    let current = map (\l -> (l, offsetCurrent)) (labels inst)
+    let make l = NamedOffset { name = l, offset = offsetCurrent }
+    let current = map make (labelNames inst)
     current ++ inner
 
 
--- Encode a list of instructions into bytes and lists of any symbol offsets
--- and label offsets.
-encodeInstructions :: [Instruction] -> ([Word8], [(String, Int)],
-                                                 [(String, Int)])
-encodeInstructions instructions = do
+-- Encode a section.
+encodeSection :: Section -> EncodedSection
+encodeSection sec = do
     let encodeOne i = (i, encodeInstruction i)
-    let encoded = map encodeOne instructions
+    let encoded = map encodeOne (instructions sec)
 
     let bytes (_, e) = encodedBytes e
-    let allBytes = concat (map bytes encoded)
 
-    let symbols = allSymbolOffsets encoded 0
-    let labels = allLabelOffsets encoded 0
-
-    (allBytes, symbols, labels)
+    EncodedSection {
+        section = sec,
+        bytes   = concat (map bytes encoded),
+        symbols = allSymbolOffsets encoded 0,
+        labels  = allLabelOffsets encoded 0
+    }
 
 
 main :: IO ()
 main = do
-    let instructions = [
-         Instruction {
-             source = "add byte al, bl",
-             labels = ["first"],
-             command = ADD,
-             sizeHint = BYTE,
-             operands = [
-                 Register AL,
-                 Register BL
-             ]
-         },
-         Instruction {
-             source = "add byte [rax], bl",
-             labels = [],
-             command = ADD,
-             sizeHint = BYTE,
-             operands = [
-                 Address RAX NoScale NoRegister NoDisplacement,
-                 Register BL
-             ]
-         },
-         Instruction {
-             source = "add qword rax, rbx",
-             labels = [],
-             command = ADD,
-             sizeHint = QWORD,
-             operands = [
-                 Register RAX,
-                 Register RBX
-             ]
-         },
-         Instruction {
-             source = "add qword [rax], rbx",
-             labels = ["fourth"],
-             command = ADD,
-             sizeHint = QWORD,
-             operands = [
-                 Address RAX NoScale NoRegister NoDisplacement,
-                 Register RBX
-             ]
-         },
-         Instruction {
-             source = "add bl, [rax]",
-             labels = [],
-             command = ADD,
-             sizeHint = NoSize,
-             operands = [
-                 Register BL,
-                 Address RAX NoScale NoRegister NoDisplacement
-             ]
-         },
-         Instruction {
-             source = "add qword rbx, [rax]",
-             labels = [],
-             command = ADD,
-             sizeHint = QWORD,
-             operands = [
-                 Register RBX,
-                 Address RAX NoScale NoRegister NoDisplacement
-             ]
-         },
-         Instruction {
-             source = "add byte al, 123",
-             labels = [],
-             command = ADD,
-             sizeHint = BYTE,
-             operands = [
-                 Register AL,
-                 Immediate (Literal (toBytes (123 :: Word8)))
-             ]
-         },
-         Instruction {
-             source = "add dword eax, 123",
-             labels = [],
-             command = ADD,
-             sizeHint = DWORD,
-             operands = [
-                 Register EAX,
-                 Immediate (Literal (toBytes (123 :: Word8)))
-             ]
-         },
-         Instruction {
-             source = "add byte ch, 123",
-             labels = [],
-             command = ADD,
-             sizeHint = BYTE,
-             operands = [
-                 Register CH,
-                 Immediate (Literal (toBytes (123 :: Word8)))
-             ]
-         },
-         Instruction {
-             source = "add qword [rcx + 8 * rdx + 456], 456",
-             labels = [],
-             command = ADD,
-             sizeHint = QWORD,
-             operands = [
-                 Address RCX Scale8 RDX (Displacement32 456),
-                 Immediate (Literal (toBytes (456 :: Word16)))
-             ]
-         },
-         Instruction {
-             source = "add rbx, 123",
-             labels = [],
-             command = ADD,
-             sizeHint = NoSize,
-             operands = [
-                 Register RBX,
-                 Immediate (Literal (toBytes (123 :: Word8)))
-             ]
-         },
-         Instruction {
-             source = "add ax, bx",
-             labels = [],
-             command = ADD,
-             sizeHint = NoSize,
-             operands = [
-                 Register AX,
-                 Register BX
-             ]
-         },
-         Instruction {
-             source = "add ax, r8w",
-             labels = [],
-             command = ADD,
-             sizeHint = NoSize,
-             operands = [
-                 Register AX,
-                 Register R8W
-             ]
-         },
-         Instruction {
-             source = "add rbx, sym3",
-             labels = [],
-             command = ADD,
-             sizeHint = NoSize,
-             operands = [
-                 Register RBX,
-                 Immediate (Symbol "sym3")
-             ]
-         },
-         Instruction {
-             source = "add rbx, [sym3]",
-             labels = [],
-             command = ADD,
-             sizeHint = NoSize,
-             operands = [
-                 Register RBX,
-                 Address NoRegister NoScale NoRegister
-                         (DisplacementSymbol "sym3")
-             ]
-         },
-         Instruction {
-             source = "add rbx, [rcx+sym3]",
-             labels = [],
-             command = ADD,
-             sizeHint = NoSize,
-             operands = [
-                 Register RBX,
-                 Address RCX NoScale NoRegister (DisplacementSymbol "sym3")
-             ]
-         },
-         Instruction {
-             source = "add [sym3], rbx",
-             labels = [],
-             command = ADD,
-             sizeHint = NoSize,
-             operands = [
-                 Address NoRegister NoScale NoRegister
-                         (DisplacementSymbol "sym3"),
-                 Register RBX
-             ]
-         },
-         Instruction {
-             source = "add [sym3], sym4",
-             labels = [],
-             command = ADD,
-             sizeHint = QWORD,
-             operands = [
-                 Address NoRegister NoScale NoRegister
-                         (DisplacementSymbol "sym3"),
-                 Immediate (Symbol "sym4")
-             ]
-         }
-         ]
+    let section = Section {
+        sectionName = "text",
+        instructions = [
+            Instruction {
+                source = "add byte al, bl",
+                labelNames = ["first"],
+                command = ADD,
+                sizeHint = BYTE,
+                operands = [
+                    Register AL,
+                    Register BL
+                ]
+            },
+            Instruction {
+                source = "add byte [rax], bl",
+                labelNames = [],
+                command = ADD,
+                sizeHint = BYTE,
+                operands = [
+                    Address RAX NoScale NoRegister NoDisplacement,
+                    Register BL
+                ]
+            },
+            Instruction {
+                source = "add qword rax, rbx",
+                labelNames = [],
+                command = ADD,
+                sizeHint = QWORD,
+                operands = [
+                    Register RAX,
+                    Register RBX
+                ]
+            },
+            Instruction {
+                source = "add qword [rax], rbx",
+                labelNames = ["fourth"],
+                command = ADD,
+                sizeHint = QWORD,
+                operands = [
+                    Address RAX NoScale NoRegister NoDisplacement,
+                    Register RBX
+                ]
+            },
+            Instruction {
+                source = "add bl, [rax]",
+                labelNames = [],
+                command = ADD,
+                sizeHint = NoSize,
+                operands = [
+                    Register BL,
+                    Address RAX NoScale NoRegister NoDisplacement
+                ]
+            },
+            Instruction {
+                source = "add qword rbx, [rax]",
+                labelNames = [],
+                command = ADD,
+                sizeHint = QWORD,
+                operands = [
+                    Register RBX,
+                    Address RAX NoScale NoRegister NoDisplacement
+                ]
+            },
+            Instruction {
+                source = "add byte al, 123",
+                labelNames = [],
+                command = ADD,
+                sizeHint = BYTE,
+                operands = [
+                    Register AL,
+                    Immediate (Literal (toBytes (123 :: Word8)))
+                ]
+            },
+            Instruction {
+                source = "add dword eax, 123",
+                labelNames = [],
+                command = ADD,
+                sizeHint = DWORD,
+                operands = [
+                    Register EAX,
+                    Immediate (Literal (toBytes (123 :: Word8)))
+                ]
+            },
+            Instruction {
+                source = "add byte ch, 123",
+                labelNames = [],
+                command = ADD,
+                sizeHint = BYTE,
+                operands = [
+                    Register CH,
+                    Immediate (Literal (toBytes (123 :: Word8)))
+                ]
+            },
+            Instruction {
+                source = "add qword [rcx + 8 * rdx + 456], 456",
+                labelNames = [],
+                command = ADD,
+                sizeHint = QWORD,
+                operands = [
+                    Address RCX Scale8 RDX (Displacement32 456),
+                    Immediate (Literal (toBytes (456 :: Word16)))
+                ]
+            },
+            Instruction {
+                source = "add rbx, 123",
+                labelNames = [],
+                command = ADD,
+                sizeHint = NoSize,
+                operands = [
+                    Register RBX,
+                    Immediate (Literal (toBytes (123 :: Word8)))
+                ]
+            },
+            Instruction {
+                source = "add ax, bx",
+                labelNames = [],
+                command = ADD,
+                sizeHint = NoSize,
+                operands = [
+                    Register AX,
+                    Register BX
+                ]
+            },
+            Instruction {
+                source = "add ax, r8w",
+                labelNames = [],
+                command = ADD,
+                sizeHint = NoSize,
+                operands = [
+                    Register AX,
+                    Register R8W
+                ]
+            },
+            Instruction {
+                source = "add rbx, sym3",
+                labelNames = [],
+                command = ADD,
+                sizeHint = NoSize,
+                operands = [
+                    Register RBX,
+                    Immediate (Symbol "sym3")
+                ]
+            },
+            Instruction {
+                source = "add rbx, [sym3]",
+                labelNames = [],
+                command = ADD,
+                sizeHint = NoSize,
+                operands = [
+                    Register RBX,
+                    Address NoRegister NoScale NoRegister
+                            (DisplacementSymbol "sym3")
+                ]
+            },
+            Instruction {
+                source = "add rbx, [rcx+sym3]",
+                labelNames = [],
+                command = ADD,
+                sizeHint = NoSize,
+                operands = [
+                    Register RBX,
+                    Address RCX NoScale NoRegister (DisplacementSymbol "sym3")
+                ]
+            },
+            Instruction {
+                source = "add [sym3], rbx",
+                labelNames = [],
+                command = ADD,
+                sizeHint = NoSize,
+                operands = [
+                    Address NoRegister NoScale NoRegister
+                            (DisplacementSymbol "sym3"),
+                    Register RBX
+                ]
+            },
+            Instruction {
+                source = "add [sym3], sym4",
+                labelNames = [],
+                command = ADD,
+                sizeHint = QWORD,
+                operands = [
+                    Address NoRegister NoScale NoRegister
+                            (DisplacementSymbol "sym3"),
+                    Immediate (Symbol "sym4")
+                ]
+            }
+        ]
+    }
 
-    let showOffset (n, o) = n ++ "=" ++ (show o)
+    let showOffset (NamedOffset n o) = n ++ "=" ++ (show o)
 
     let go i = do
         let e = encodeInstruction i
@@ -651,9 +593,9 @@ main = do
             "\tsib   : " ++ (show (sib e)) ++ "\n" ++
             "\toffset: " ++ (intercalate ", " (map showOffset offsets)) ++ "\n"
 
-    putStrLn (intercalate "\n" (map go instructions))
+    putStrLn (intercalate "\n" (map go (instructions section)))
 
-    let (bytes, symbols, labels) = encodeInstructions instructions
-    putStrLn (show bytes)
-    putStrLn ("symbols: " ++ (intercalate ", " (map showOffset symbols)))
-    putStrLn ("labels: " ++ (intercalate ", " (map showOffset labels)))
+    let enc = encodeSection section
+    putStrLn (show (bytes enc))
+    putStrLn ("symbols: " ++ (intercalate ", " (map showOffset (symbols enc))))
+    putStrLn ("labels: " ++ (intercalate ", " (map showOffset (labels enc))))

@@ -67,6 +67,12 @@ if opcode != 04,05 -> mod rm
 
 
 
+if opcode can take 16/32/64 register:
+    if 16: prefix 0x66
+    if 64: rex byte
+
+
+
 
 add byte al, bl                   00 d8                   00000000 11011000
 add byte [rax], bl                00 18                   00000000 00011000
