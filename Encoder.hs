@@ -3,6 +3,7 @@ module Encoder where
 import Data.Int
 import Data.List
 import Data.Binary
+import Data.Bits
 import qualified Data.ByteString as B
 
 import Numeric (showHex)
@@ -67,11 +68,27 @@ data EncodedSection = EncodedSection {
 
 
 -- Opcodes that default to 32-bit operation size without any prefix bytes
-ops32 = [0x01, 0x03, 0x05, 0x81, 0x83]
+ops32 = [
+         -- ADD
+         [0x01], [0x03], [0x05], [0x81], [0x83],
+
+         -- MOV
+         [0x89], [0x8b], [0xc7],
+         [0xb8], [0xb9], [0xba], [0xbb], [0xbc], [0xbd], [0xbe], [0xbf]] --b8+r
+
+
+-- Opcodes that specify one of the operands and therefore need no ModR/M byte
+setRegister = [
+               -- ADD
+               [0x04], [0x05],
+
+               -- MOV
+               [0xb0], [0xb1], [0xb2], [0xb3], [0xb4], [0xb5], [0xb6], [0xb7],
+               [0xb8], [0xb9], [0xba], [0xbb], [0xbc], [0xbd], [0xbe], [0xbf]]
 
 
 -- Opcodes in this list need their operators reversed before encoding.
-reversedOpCodes = [0x02, 0x03]
+reversedOpCodes = [[0x02], [0x03]]
 
 
 -- Check if an operand references any of a list of registers
@@ -112,7 +129,8 @@ extensionB [_               , _] = 0
 
 -- Encode a REX byte if necessary.
 -- TODO: Make sure extended registers and high byte registers aren't mixed
-encodeRex :: Word8 -> Size -> [Operand] -> [Word8]
+encodeRex :: [Word8] -> Size -> [Operand] -> [Word8]
+encodeRex _ _ [] = []
 encodeRex op size [op1, op2]
     | (size == QWORD && elem op ops32) ||
       anyExtendedRegisters op1 ||
@@ -125,7 +143,7 @@ encodeRex op size [op1, op2]
 
 
 -- Encode a size override prefix if necessary.
-encodeSizePrefix :: Word8 -> Size -> [Word8]
+encodeSizePrefix :: [Word8] -> Size -> [Word8]
 encodeSizePrefix op size
     | elem op ops32 && size == WORD = [0x66]
     | otherwise                     = []
@@ -183,7 +201,7 @@ registerIndex r
 
 
 -- Reorder operands based on opcode directionality (flipping them if needed).
-encodedOrder :: Word8 -> [Operand] -> [Operand]
+encodedOrder :: [Word8] -> [Operand] -> [Operand]
 encodedOrder op operands
     | elem op reversedOpCodes = reverse operands
     | otherwise               = operands
@@ -214,16 +232,17 @@ rmBits (Address  _   _       _          _                 ) = [1, 0, 0] -- SIB
 -- Generate the REG bits of a ModR/M byte.
 regBits :: Operand -> [Int]
 regBits (Register r) = registerIndex r
-regBits _            = [0, 0, 0]
+regBits _            = [0, 0, 0] 
 
 
 -- Generate a ModR/M byte if necessary.
-encodeModRm :: Word8 -> [Operand] -> [Word8]
+encodeModRm :: [Word8] -> [Operand] -> [Word8]
+encodeModRm _  []         = []
 encodeModRm op [op1, op2]
-    | elem op [0x04, 0x05] = []
-    | otherwise            = [bitsToByte (modBits [op1, op2] ++
-                                          regBits op2 ++
-                                          rmBits op1)]
+    | elem op setRegister = []
+    | otherwise           = [bitsToByte (modBits [op1, op2] ++
+                                         regBits op2 ++
+                                         rmBits op1)]
 
 
 -- Convert a scale into its 2-bit SIB byte representation.
@@ -242,6 +261,7 @@ encodeSib [Address base scale   index      _, _] =
                  registerIndex index ++
                  registerIndex base)]
 encodeSib [_, _]                                 = []
+encodeSib []                                     = []
 
 
 -- Encode a displacement if one exists.
@@ -260,30 +280,109 @@ encodeImmediate [_, Immediate (Symbol  s   _)] = replicate (sizeInt s) 0
 encodeImmediate _                              = []
 
 
--- Get an opcode based on an assembly command and its operators.
+-- A description of the possible values of an operand, based on ref.x86asm.net
+data Pattern = P_empty      -- An empty operand with no valid values
+             | P_r8         -- An 8-bit register
+             | P_rm8        -- An 8-bit register or memory address
+             | P_r163264    -- A 16/32/64-bit register
+             | P_rm163264   -- A 16/32/64-bit register or memory address
+             | P_imm8       -- An 8-bit immediate
+             | P_imm1632    -- A 16/32-bit immediate
+             | P_imm163264  -- A 16/32/64-bit immediate
+             | P Registers  -- A single register match
+             deriving Show
+
+
+-- These instructions all share the same combinations of possible operands.
+standardIntCommands = [ADC, ADD, AND, CMP, OR, SBB, SUB, XOR]
+
+
+-- These instructions have no operands (or all operands are implicit).
+noOperandCommands = [SYSCALL]
+
+
+-- Operand classifier for the standard integer commands (standardIntCommands).
 -- Operands should not be in encoded order.
-opcode :: Command -> [Operand] -> Word8
-opcode ADD [_,               Register r]
-    | elem r registers8                               = 0x00 -- r8, r
-    | otherwise                                       = 0x01 -- *, r
-opcode ADD [Register r,      Address _ _ _ _]
-    | elem r registers8                               = 0x02 -- r8, addr
-    | otherwise                                       = 0x03 -- r!8, addr
-opcode ADD [Register AL,     Immediate _]             = 0x04 -- AL, imm
-opcode ADD [Register AX,     Immediate _]             = 0x05 -- AX, imm
-opcode ADD [Register EAX,    Immediate _]             = 0x05 -- EAX, imm
-opcode ADD [Register RAX,    Immediate _]             = 0x05 -- RAX, imm
-opcode ADD [Address _ _ _ _, Immediate (Literal [_])] = 0x80 -- addr, imm8
-opcode ADD [Register r,      Immediate (Literal [_])]
-    | elem r registers8                               = 0x80 -- r8, imm8
-    | otherwise                                       = 0x83 -- r!8, imm8
-opcode ADD [_,               Immediate _]             = 0x81 -- *, imm
+patStdInt :: [Operand] -> [Pattern]
+patStdInt [_,               Register r]
+    | elem r registers8                              = [P_rm8     , P_r8      ]
+    | otherwise                                      = [P_rm163264, P_r163264 ]
+patStdInt [Register r,      Address _ _ _ _]
+    | elem r registers8                              = [P_r8      , P_rm8     ]
+    | otherwise                                      = [P_r163264 , P_rm163264]
+patStdInt [Register AL,     Immediate _]             = [P AL      , P_imm8    ]
+patStdInt [Register AX,     Immediate _]             = [P RAX     , P_imm1632 ]
+patStdInt [Register EAX,    Immediate _]             = [P RAX     , P_imm1632 ]
+patStdInt [Register RAX,    Immediate _]             = [P RAX     , P_imm1632 ]
+patStdInt [Address _ _ _ _, Immediate (Literal [_])] = [P_rm8     , P_imm8    ]
+patStdInt [Register r,      Immediate (Literal [_])]
+    | elem r registers8                              = [P_rm8     , P_imm8    ]
+    | otherwise                                      = [P_rm163264, P_imm8    ]
+patStdInt [_,               Immediate _]             = [P_rm163264, P_imm1632 ]
+
+
+-- Operand classifier for the mov instruction.
+-- Operands should not be in encoded order.
+patMov :: [Operand] -> [Pattern]
+patMov [_,               Register r]
+    | elem r registers8                           = [P_rm8     , P_r8       ]
+    | otherwise                                   = [P_rm163264, P_r163264  ]
+patMov [Register r,      Address _ _ _ _]
+    | elem r registers8                           = [P_r8      , P_rm8      ]
+    | otherwise                                   = [P_r163264 , P_rm163264 ]
+patMov [Register r,      Immediate _]
+    | elem r registers8                           = [P r       , P_imm8     ]
+    | otherwise                                   = [P r       , P_imm163264]
+patMov [Address _ _ _ _, Immediate (Literal [_])] = [P_rm8     , P_imm8     ]
+patMov [Address _ _ _ _, Immediate _]             = [P_rm163264, P_imm1632  ]
+
+
+-- Classify a set of operands into an operand pattern.
+-- Operands should not be in encoded order.
+pattern :: Command -> [Operand] -> [Pattern]
+pattern cmd operands
+    | cmd == MOV                   = patMov    operands
+    | elem cmd standardIntCommands = patStdInt operands
+    | elem cmd noOperandCommands   = []
+
+
+-- Add register index to a base opcode (for example MOV b0+r / b8+r)
+addRegister :: Word8 -> Registers -> Word8
+addRegister base register = do
+    let bits = registerIndex register
+    let adjustment = shiftL (bits !! 0) 2 + shiftL (bits !! 1) 1 + bits !! 2
+    base + (fromIntegral adjustment :: Word8)
+
+
+-- Get an opcode based on an assembly command and an operator pattern.
+opcode :: Command -> [Pattern] -> [Word8]
+
+opcode ADD     [P_rm8     , P_r8       ] = [      0x00]
+opcode ADD     [P_rm163264, P_r163264  ] = [      0x01]
+opcode ADD     [P_r8      , P_rm8      ] = [      0x02]
+opcode ADD     [P_r163264 , P_rm163264 ] = [      0x03]
+opcode ADD     [P AL      , P_imm8     ] = [      0x04]
+opcode ADD     [P RAX     , P_imm1632  ] = [      0x05]
+opcode ADD     [P_rm8     , P_imm8     ] = [      0x80]
+opcode ADD     [P_rm163264, P_imm1632  ] = [      0x81]
+opcode ADD     [P_rm163264, P_imm8     ] = [      0x83]
+
+opcode MOV     [P_rm8     , P_r8       ] = [      0x88]
+opcode MOV     [P_rm163264, P_r163264  ] = [      0x89]
+opcode MOV     [P_r8      , P_rm8      ] = [      0x8a]
+opcode MOV     [P_r163264 , P_rm163264 ] = [      0x8b]
+opcode MOV     [P r       , P_imm8     ] = [addRegister 0xb0 r]
+opcode MOV     [P r       , P_imm163264] = [addRegister 0xb8 r]
+opcode MOV     [P_rm8     , P_imm8     ] = [      0xc6]
+opcode MOV     [P_r163264 , P_imm1632  ] = [      0xc7]
+
+opcode SYSCALL [                       ] = [0x0f, 0x05]
 
 
 -- Encode an instruction into bytes.
 encodeInstruction :: Instruction -> Encoded
 encodeInstruction i = do
-    let op = opcode (command i) (operands i)
+    let op = opcode (command i) (pattern (command i) (operands i))
     let ordered = encodedOrder op (operands i)
 
     let size = case opSize (sizeHint i) ordered of
@@ -294,7 +393,7 @@ encodeInstruction i = do
     Encoded {
         sizePrefix   = encodeSizePrefix op size,
         rex          = encodeRex op size ordered,
-        op           = [op],
+        op           = op,
         modrm        = encodeModRm op ordered,
         sib          = encodeSib ordered,
         displacement = encodeDisplacement ordered,
@@ -346,7 +445,7 @@ symbolOffsets inst enc offset = do
                          (length (modrm enc)) +
                          (length (sib enc))
 
-    let ordered = encodedOrder (head (op enc)) (operands inst)
+    let ordered = encodedOrder (op enc) (operands inst)
 
     let make s n o = NamedOffset { name = n, offset = o, size = s }
 

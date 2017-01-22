@@ -4,7 +4,17 @@ import Data.Int
 import Data.Binary
 
 
-data Command = ADD
+data Command = ADC
+             | ADD
+             | AND
+             | CMP
+             | MOV
+             | OR
+             | SBB
+             | SUB
+             | SYSCALL
+             | XOR
+             deriving Eq
 
 
 data Size = BYTE
@@ -33,7 +43,7 @@ data Registers = NoRegister
                | R8W  | R9W  | R10W | R11W | R12W | R13W | R14W | R15W
                | R8B  | R9B  | R10B | R11B | R12B | R13B | R14B | R15B
                | RIP  | EIP
-               deriving Eq
+               deriving (Eq, Show)
 
 
 registersHigh8 = [AH, BH, CH, DH]

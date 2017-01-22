@@ -696,73 +696,31 @@ testingProgBitsSections =
         D.sectionName = ".text",
         D.instructions = [
             D.Instruction {
-                D.source = "add byte al, bl",
-                D.labelNames = ["first"],
-                D.command = D.ADD,
-                D.sizeHint = D.BYTE,
-                D.operands = [
-                    D.Register D.AL,
-                    D.Register D.BL
-                ]
-            },
-            D.Instruction {
-                D.source = "add byte [rax], bl",
-                D.labelNames = ["sym3"],
-                D.command = D.ADD,
-                D.sizeHint = D.BYTE,
-                D.operands = [
-                    D.Address D.RAX D.NoScale D.NoRegister D.NoDisplacement,
-                    D.Register D.BL
-                ]
-            },
-            D.Instruction {
-                D.source = "add rbx, [sym3]",
-                D.labelNames = ["sym4"],
-                D.command = D.ADD,
+                D.source = "mov rax, 60",
+                D.labelNames = ["_start"],
+                D.command = D.MOV,
                 D.sizeHint = D.NoSize,
                 D.operands = [
-                    D.Register D.RBX,
-                    D.Address D.NoRegister D.NoScale D.NoRegister
-                            (D.DisplacementSymbol D.DWORD "sym3")
-                ]
-            }
-        ]
-    },
-    D.CodeSection {
-        D.sectionName = ".data",
-        D.instructions = [
-            D.Instruction {
-                D.source = "add rbx, [rcx+sym3]",
-                D.labelNames = [],
-                D.command = D.ADD,
-                D.sizeHint = D.NoSize,
-                D.operands = [
-                    D.Register D.RBX,
-                    D.Address D.RCX D.NoScale D.NoRegister
-                              (D.DisplacementSymbol D.DWORD "sym3")
+                    D.Register D.RAX,
+                    D.Immediate (D.Literal (toBytes (60 :: Word64)))
                 ]
             },
             D.Instruction {
-                D.source = "add [sym3], rbx",
+                D.source = "mov rdi, 77",
                 D.labelNames = [],
-                D.command = D.ADD,
+                D.command = D.MOV,
                 D.sizeHint = D.NoSize,
                 D.operands = [
-                    D.Address D.NoRegister D.NoScale D.NoRegister
-                              (D.DisplacementSymbol D.DWORD "sym3"),
-                    D.Register D.RBX
+                    D.Register D.RDI,
+                    D.Immediate (D.Literal (toBytes (77 :: Word64)))
                 ]
             },
             D.Instruction {
-                D.source = "add qword [sym3], sym4",
+                D.source = "syscall",
                 D.labelNames = [],
-                D.command = D.ADD,
-                D.sizeHint = D.QWORD,
-                D.operands = [
-                    D.Address D.NoRegister D.NoScale D.NoRegister
-                              (D.DisplacementSymbol D.DWORD "sym3"),
-                    D.Immediate (D.Symbol D.DWORD "sym4")
-                ]
+                D.command = D.SYSCALL,
+                D.sizeHint = D.NoSize,
+                D.operands = []
             }
         ]
     }]
