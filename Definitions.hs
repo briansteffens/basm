@@ -15,6 +15,13 @@ data Size = BYTE
           deriving (Eq, Show)
 
 
+sizeInt :: Size -> Int
+sizeInt BYTE  = 1
+sizeInt WORD  = 2
+sizeInt DWORD = 4
+sizeInt QWORD = 8
+
+
 data Registers = NoRegister
                | RAX  | RBX  | RCX  | RDX  | RBP  | RSP  | RSI  | RDI
                | EAX  | EBX  | ECX  | EDX  | EBP  | ESP  | ESI  | EDI
@@ -55,7 +62,7 @@ registers64 = [RAX, RBX, RCX, RDX, RBP, RSP, RSI, RDI, RIP] ++
 data Displacement = NoDisplacement
                   | Displacement8       Int8
                   | Displacement32      Int32
-                  | DisplacementSymbol  String
+                  | DisplacementSymbol  Size  String
 
 
 data Scale = NoScale
@@ -65,7 +72,7 @@ data Scale = NoScale
 
 
 data ImmediateDescriptor = Literal [Word8]
-                         | Symbol  String
+                         | Symbol  Size    String
 
 
 data Operand = Register  Registers
@@ -82,7 +89,7 @@ data Instruction = Instruction {
 }
 
 
-data Section = Section {
+data CodeSection = CodeSection {
     sectionName  :: String,
     instructions :: [Instruction]
 }

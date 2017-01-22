@@ -12,4 +12,4 @@ bitsToByte = foldl (\byte bit -> byte * 2 + (fromIntegral bit :: Word8)) 0
 
 -- Convert an int value to bytes
 toBytes :: (Binary a) => a -> [Word8]
-toBytes a = B.unpack (encode a)
+toBytes a = B.unpack (B.reverse (encode a))

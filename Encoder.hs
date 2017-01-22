@@ -1,4 +1,4 @@
-module Main where
+module Encoder where
 
 import Data.Int
 import Data.List
@@ -47,14 +47,21 @@ data Encoded = Encoded {
 
 data NamedOffset = NamedOffset {
     name   :: String,
-    offset :: Int
+    offset :: Int,
+    size   :: Size
+}
+
+
+data Label = Label {
+    label       :: String,
+    labelOffset :: Int
 }
 
 
 data EncodedSection = EncodedSection {
-    section :: Section,
+    section :: CodeSection,
     bytes   :: [Word8],
-    labels  :: [NamedOffset],
+    labels  :: [Label],
     symbols :: [NamedOffset]
 }
 
@@ -184,15 +191,15 @@ encodedOrder op operands
 
 -- Generate the first two bits of ModR/M field.
 modBits :: [Operand] -> [Int]
-modBits [Address  _   _ _  NoDisplacement       , _] = [0, 0]
-modBits [Address  RIP _ _ (Displacement32     _), _] = [0, 0]
-modBits [Address  RIP _ _ (DisplacementSymbol _), _] = [0, 0]
-modBits [Address  EIP _ _ (Displacement32     _), _] = [0, 0]
-modBits [Address  EIP _ _ (DisplacementSymbol _), _] = [0, 0]
-modBits [Address  _   _ _ (Displacement8      _), _] = [0, 1]
-modBits [Address  _   _ _ (Displacement32     _), _] = [1, 0]
-modBits [Address  _   _ _ (DisplacementSymbol _), _] = [1, 0]
-modBits [Register _                             , _] = [1, 1]
+modBits [Address  _   _ _  NoDisplacement         , _] = [0, 0]
+modBits [Address  RIP _ _ (Displacement32     _  ), _] = [0, 0]
+modBits [Address  RIP _ _ (DisplacementSymbol _ _), _] = [0, 0]
+modBits [Address  EIP _ _ (Displacement32     _  ), _] = [0, 0]
+modBits [Address  EIP _ _ (DisplacementSymbol _ _), _] = [0, 0]
+modBits [Address  _   _ _ (Displacement8      _  ), _] = [0, 1]
+modBits [Address  _   _ _ (Displacement32     _  ), _] = [1, 0]
+modBits [Address  _   _ _ (DisplacementSymbol _ _), _] = [1, 0]
+modBits [Register _                               , _] = [1, 1]
 
 
 -- Generate the R/M bits of a ModR/M byte.
@@ -239,17 +246,18 @@ encodeSib [_, _]                                 = []
 
 -- Encode a displacement if one exists.
 encodeDisplacement :: [Operand] -> [Word8]
-encodeDisplacement [Address _ _ _ (Displacement8      d), _] = toBytes d
-encodeDisplacement [Address _ _ _ (Displacement32     d), _] = toBytes d
-encodeDisplacement [Address _ _ _ (DisplacementSymbol _), _] = [0, 0, 0, 0]
-encodeDisplacement _                                         = []
+encodeDisplacement [Address _ _ _ (Displacement8        d), _] = toBytes d
+encodeDisplacement [Address _ _ _ (Displacement32       d), _] = toBytes d
+encodeDisplacement [Address _ _ _ (DisplacementSymbol s _), _] =
+    replicate (sizeInt s) 0
+encodeDisplacement _                                           = []
 
 
 -- Encode an immediate if one exists.
 encodeImmediate :: [Operand] -> [Word8]
-encodeImmediate [_, Immediate (Literal imm)] = imm
-encodeImmediate [_, Immediate (Symbol  _  )] = [0x00, 0x00, 0x00, 0x00]
-encodeImmediate _                            = []
+encodeImmediate [_, Immediate (Literal imm  )] = imm
+encodeImmediate [_, Immediate (Symbol  s   _)] = replicate (sizeInt s) 0
+encodeImmediate _                              = []
 
 
 -- Get an opcode based on an assembly command and its operators.
@@ -316,16 +324,16 @@ encodedBytes e = (sizePrefix   e) ++
                  (immediate    e)
 
 
--- If a displacement symbol is present, return the symbol name.
-displacementSymbol :: [Operand] -> Maybe String
-displacementSymbol [Address _ _ _ (DisplacementSymbol s), _] = Just s
-displacementSymbol _                                         = Nothing
+-- If a displacement symbol is present, return the name and size.
+displacementSymbol :: [Operand] -> Maybe (Size, String)
+displacementSymbol [Address _ _ _ (DisplacementSymbol s n), _] = Just (s, n)
+displacementSymbol _                                           = Nothing
 
 
--- If an immediate symbol is present, return the symbol name.
-immediateSymbol :: [Operand] -> Maybe String
-immediateSymbol [_, Immediate (Symbol s)] = Just s
-immediateSymbol _                         = Nothing
+-- If an immediate symbol is present, return the name and size.
+immediateSymbol :: [Operand] -> Maybe (Size, String)
+immediateSymbol [_, Immediate (Symbol s n)] = Just (s, n)
+immediateSymbol _                           = Nothing
 
 
 -- Extract any symbol offsets from an encoded instruction.
@@ -340,15 +348,16 @@ symbolOffsets inst enc offset = do
 
     let ordered = encodedOrder (head (op enc)) (operands inst)
 
-    let make n o = NamedOffset { name = n, offset = o }
+    let make s n o = NamedOffset { name = n, offset = o, size = s }
 
     let disp = case displacementSymbol ordered of
-              Just s  -> [make s commandByteLen]
-              Nothing -> []
+              Just (s, n) -> [make s n commandByteLen]
+              Nothing     -> []
 
     let imm = case immediateSymbol ordered of
-             Just s  -> [make s (commandByteLen + (length (displacement enc)))]
-             Nothing -> []
+             Just (s, n) -> [make s n (commandByteLen +
+                                      (length (displacement enc)))]
+             Nothing     -> []
 
     disp ++ imm
 
@@ -363,17 +372,17 @@ allSymbolOffsets ((inst, enc):xs) offset = do
 
 
 -- Extract all label offsets from a list of encoded instructions.
-allLabelOffsets :: [(Instruction, Encoded)] -> Int -> [NamedOffset]
+allLabelOffsets :: [(Instruction, Encoded)] -> Int -> [Label]
 allLabelOffsets [] _ = []
 allLabelOffsets ((inst, enc):xs) offsetCurrent = do
     let inner = allLabelOffsets xs (offsetCurrent + (encodedLength enc))
-    let make l = NamedOffset { name = l, offset = offsetCurrent }
+    let make l = Label { label = l, labelOffset = offsetCurrent }
     let current = map make (labelNames inst)
     current ++ inner
 
 
 -- Encode a section.
-encodeSection :: Section -> EncodedSection
+encodeSection :: CodeSection -> EncodedSection
 encodeSection sec = do
     let encodeOne i = (i, encodeInstruction i)
     let encoded = map encodeOne (instructions sec)
@@ -386,216 +395,3 @@ encodeSection sec = do
         symbols = allSymbolOffsets encoded 0,
         labels  = allLabelOffsets encoded 0
     }
-
-
-main :: IO ()
-main = do
-    let section = Section {
-        sectionName = "text",
-        instructions = [
-            Instruction {
-                source = "add byte al, bl",
-                labelNames = ["first"],
-                command = ADD,
-                sizeHint = BYTE,
-                operands = [
-                    Register AL,
-                    Register BL
-                ]
-            },
-            Instruction {
-                source = "add byte [rax], bl",
-                labelNames = [],
-                command = ADD,
-                sizeHint = BYTE,
-                operands = [
-                    Address RAX NoScale NoRegister NoDisplacement,
-                    Register BL
-                ]
-            },
-            Instruction {
-                source = "add qword rax, rbx",
-                labelNames = [],
-                command = ADD,
-                sizeHint = QWORD,
-                operands = [
-                    Register RAX,
-                    Register RBX
-                ]
-            },
-            Instruction {
-                source = "add qword [rax], rbx",
-                labelNames = ["fourth"],
-                command = ADD,
-                sizeHint = QWORD,
-                operands = [
-                    Address RAX NoScale NoRegister NoDisplacement,
-                    Register RBX
-                ]
-            },
-            Instruction {
-                source = "add bl, [rax]",
-                labelNames = [],
-                command = ADD,
-                sizeHint = NoSize,
-                operands = [
-                    Register BL,
-                    Address RAX NoScale NoRegister NoDisplacement
-                ]
-            },
-            Instruction {
-                source = "add qword rbx, [rax]",
-                labelNames = [],
-                command = ADD,
-                sizeHint = QWORD,
-                operands = [
-                    Register RBX,
-                    Address RAX NoScale NoRegister NoDisplacement
-                ]
-            },
-            Instruction {
-                source = "add byte al, 123",
-                labelNames = [],
-                command = ADD,
-                sizeHint = BYTE,
-                operands = [
-                    Register AL,
-                    Immediate (Literal (toBytes (123 :: Word8)))
-                ]
-            },
-            Instruction {
-                source = "add dword eax, 123",
-                labelNames = [],
-                command = ADD,
-                sizeHint = DWORD,
-                operands = [
-                    Register EAX,
-                    Immediate (Literal (toBytes (123 :: Word8)))
-                ]
-            },
-            Instruction {
-                source = "add byte ch, 123",
-                labelNames = [],
-                command = ADD,
-                sizeHint = BYTE,
-                operands = [
-                    Register CH,
-                    Immediate (Literal (toBytes (123 :: Word8)))
-                ]
-            },
-            Instruction {
-                source = "add qword [rcx + 8 * rdx + 456], 456",
-                labelNames = [],
-                command = ADD,
-                sizeHint = QWORD,
-                operands = [
-                    Address RCX Scale8 RDX (Displacement32 456),
-                    Immediate (Literal (toBytes (456 :: Word16)))
-                ]
-            },
-            Instruction {
-                source = "add rbx, 123",
-                labelNames = [],
-                command = ADD,
-                sizeHint = NoSize,
-                operands = [
-                    Register RBX,
-                    Immediate (Literal (toBytes (123 :: Word8)))
-                ]
-            },
-            Instruction {
-                source = "add ax, bx",
-                labelNames = [],
-                command = ADD,
-                sizeHint = NoSize,
-                operands = [
-                    Register AX,
-                    Register BX
-                ]
-            },
-            Instruction {
-                source = "add ax, r8w",
-                labelNames = [],
-                command = ADD,
-                sizeHint = NoSize,
-                operands = [
-                    Register AX,
-                    Register R8W
-                ]
-            },
-            Instruction {
-                source = "add rbx, sym3",
-                labelNames = [],
-                command = ADD,
-                sizeHint = NoSize,
-                operands = [
-                    Register RBX,
-                    Immediate (Symbol "sym3")
-                ]
-            },
-            Instruction {
-                source = "add rbx, [sym3]",
-                labelNames = [],
-                command = ADD,
-                sizeHint = NoSize,
-                operands = [
-                    Register RBX,
-                    Address NoRegister NoScale NoRegister
-                            (DisplacementSymbol "sym3")
-                ]
-            },
-            Instruction {
-                source = "add rbx, [rcx+sym3]",
-                labelNames = [],
-                command = ADD,
-                sizeHint = NoSize,
-                operands = [
-                    Register RBX,
-                    Address RCX NoScale NoRegister (DisplacementSymbol "sym3")
-                ]
-            },
-            Instruction {
-                source = "add [sym3], rbx",
-                labelNames = [],
-                command = ADD,
-                sizeHint = NoSize,
-                operands = [
-                    Address NoRegister NoScale NoRegister
-                            (DisplacementSymbol "sym3"),
-                    Register RBX
-                ]
-            },
-            Instruction {
-                source = "add [sym3], sym4",
-                labelNames = [],
-                command = ADD,
-                sizeHint = QWORD,
-                operands = [
-                    Address NoRegister NoScale NoRegister
-                            (DisplacementSymbol "sym3"),
-                    Immediate (Symbol "sym4")
-                ]
-            }
-        ]
-    }
-
-    let showOffset (NamedOffset n o) = n ++ "=" ++ (show o)
-
-    let go i = do
-        let e = encodeInstruction i
-        let offsets = symbolOffsets i e 0
-
-        (source i) ++ "\n" ++
-            "\tsize  : " ++ (show (sizePrefix e)) ++ "\n" ++
-            "\trex   : " ++ (show (rex e)) ++ "\n" ++
-            "\top    : " ++ (show (op e)) ++ "\n" ++
-            "\tmodrm : " ++ (show (modrm e)) ++ "\n" ++
-            "\tsib   : " ++ (show (sib e)) ++ "\n" ++
-            "\toffset: " ++ (intercalate ", " (map showOffset offsets)) ++ "\n"
-
-    putStrLn (intercalate "\n" (map go (instructions section)))
-
-    let enc = encodeSection section
-    putStrLn (show (bytes enc))
-    putStrLn ("symbols: " ++ (intercalate ", " (map showOffset (symbols enc))))
-    putStrLn ("labels: " ++ (intercalate ", " (map showOffset (labels enc))))
