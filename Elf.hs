@@ -136,7 +136,8 @@ data SectionHeader = SectionHeader {
 
 
 -- The type of a relocation table entry
-data RelocationType = R_X86_64_PC32
+data RelocationType = R_X86_64_64
+                    | R_X86_64_PC32
 
 
 -- The contents of a relocation table
@@ -156,6 +157,7 @@ data Relocation = Relocation {
 
 -- Convert a RelocationType into a 4-byte format for a rela tab
 renderRelocationType :: RelocationType -> [Word8]
+renderRelocationType R_X86_64_64   = [0x01, 0x00, 0x00, 0x00]
 renderRelocationType R_X86_64_PC32 = [0x02, 0x00, 0x00, 0x00]
 
 
@@ -302,7 +304,7 @@ renderRelocations all relos = do
         let targetIndex = sectionSymbolIndex symbols targetName
 
         toBytes (E.offset (sourceOffset relo)) ++
-            renderRelocationType R_X86_64_PC32 ++
+            renderRelocationType R_X86_64_64 ++
             toBytes (fromIntegral targetIndex :: Word32) ++
             toBytes (fromIntegral (E.labelOffset (targetLabel relo)) :: Int64)
 
@@ -693,11 +695,74 @@ showEnc e = show (E.bytes e) ++ "\n" ++
 
 testingProgBitsSections =
     [D.CodeSection {
+        D.sectionName = ".data",
+        D.instructions = [
+            D.Instruction {
+                D.source = "message: db 'Greetings!', 10",
+                D.labelNames = ["message"],
+                D.command = D.DATA,
+                D.sizeHint = D.NoSize,
+                D.operands = [
+                    D.Immediate (D.Literal [0x47, 0x72, 0x65, 0x65, 0x74, 0x69,
+                                            0x6e, 0x67, 0x73, 0x21, 0x0a])
+                ]
+            }
+        ]
+     },
+     D.CodeSection {
         D.sectionName = ".text",
         D.instructions = [
             D.Instruction {
-                D.source = "mov rax, 60",
+                D.source = "_start: mov rax, 1",
                 D.labelNames = ["_start"],
+                D.command = D.MOV,
+                D.sizeHint = D.NoSize,
+                D.operands = [
+                    D.Register D.RAX,
+                    D.Immediate (D.Literal (toBytes (1 :: Word64)))
+                ]
+            },
+            D.Instruction {
+                D.source = "mov rdi, 1",
+                D.labelNames = [],
+                D.command = D.MOV,
+                D.sizeHint = D.NoSize,
+                D.operands = [
+                    D.Register D.RDI,
+                    D.Immediate (D.Literal (toBytes (1 :: Word64)))
+                ]
+            },
+            D.Instruction {
+                D.source = "mov rsi, message",
+                D.labelNames = [],
+                D.command = D.MOV,
+                D.sizeHint = D.NoSize,
+                D.operands = [
+                    D.Register D.RSI,
+                    D.Immediate (D.Symbol D.QWORD "message")
+                ]
+            },
+            D.Instruction {
+                D.source = "mov rdx, 11",
+                D.labelNames = [],
+                D.command = D.MOV,
+                D.sizeHint = D.NoSize,
+                D.operands = [
+                    D.Register D.RDX,
+                    D.Immediate (D.Literal (toBytes (11 :: Word64)))
+                ]
+            },
+            D.Instruction {
+                D.source = "syscall",
+                D.labelNames = [],
+                D.command = D.SYSCALL,
+                D.sizeHint = D.NoSize,
+                D.operands = []
+            },
+
+            D.Instruction {
+                D.source = "mov rax, 60",
+                D.labelNames = [],
                 D.command = D.MOV,
                 D.sizeHint = D.NoSize,
                 D.operands = [

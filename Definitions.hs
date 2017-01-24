@@ -14,7 +14,13 @@ data Command = ADC
              | SUB
              | SYSCALL
              | XOR
+             -- Data pseudo-commands
+             | DATA
              deriving Eq
+
+
+-- Pseudo-commands that render data rather than x64 instructions
+dataCommands = [DATA]
 
 
 data Size = BYTE

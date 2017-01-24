@@ -379,9 +379,31 @@ opcode MOV     [P_r163264 , P_imm1632  ] = [      0xc7]
 opcode SYSCALL [                       ] = [0x0f, 0x05]
 
 
--- Encode an instruction into bytes.
-encodeInstruction :: Instruction -> Encoded
-encodeInstruction i = do
+-- Get the data from an immediate literal operand or fail.
+extractLiteral :: Operand -> [Word8]
+extractLiteral (Immediate (Literal b)) = b
+extractLiteral _                       = error("Invalid operand for data " ++
+                                               "command.")
+
+
+-- Encode a data pseudo-instruction into bytes (the command must be in
+-- dataCommands).
+encodeData :: Instruction -> Encoded
+encodeData i = do
+    Encoded {
+        sizePrefix   = [],
+        rex          = [],
+        op           = [],
+        modrm        = [],
+        sib          = [],
+        displacement = [],
+        immediate    = concat (map extractLiteral (operands i))
+    }
+
+
+-- Encode a code instruction into bytes (the command can't be in dataCommands).
+encodeCode :: Instruction -> Encoded
+encodeCode i = do
     let op = opcode (command i) (pattern (command i) (operands i))
     let ordered = encodedOrder op (operands i)
 
@@ -399,6 +421,13 @@ encodeInstruction i = do
         displacement = encodeDisplacement ordered,
         immediate    = encodeImmediate ordered
     }
+
+
+-- Encode an instruction into bytes.
+encodeInstruction :: Instruction -> Encoded
+encodeInstruction i
+    | elem (command i) dataCommands = encodeData i
+    | otherwise                     = encodeCode i
 
 
 -- Get the total number of encoded bytes for an instruction.
