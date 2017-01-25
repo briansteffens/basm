@@ -16,7 +16,7 @@ data Command = ADC
              | XOR
              -- Data pseudo-commands
              | DATA
-             deriving Eq
+             deriving (Eq, Show)
 
 
 -- Pseudo-commands that render data rather than x64 instructions
