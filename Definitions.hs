@@ -109,3 +109,27 @@ data CodeSection = CodeSection {
     sectionName  :: String,
     instructions :: [Instruction]
 }
+
+
+-- A description of the possible values of an operand, based on ref.x86asm.net
+data Pattern = P_r8            -- An 8-bit register
+             | P_rm8           -- An 8-bit register or memory address
+             | P_r163264       -- A 16/32/64-bit register
+             | P_rm163264      -- A 16/32/64-bit register or memory address
+             | P_imm8          -- An 8-bit immediate
+             | P_imm1632       -- A 16/32-bit immediate
+             | P_imm163264     -- A 16/32/64-bit immediate
+             | R Registers     -- A single register match
+             deriving Show
+
+
+data Encoding = Encoding {
+    mnemonic    :: Command,
+    patterns    :: [Pattern],
+    prefix      :: Maybe Word8,
+    prefix0f    :: Bool,
+    primary     :: Word8,
+    registerAdd :: Bool,        -- Add primary opcode to register index
+    secondary   :: Maybe Word8,
+    opcodeExt   :: Int          -- TODO: ?
+}

@@ -11,6 +11,7 @@ import Debug.Trace (trace)
 
 import Shared
 import Definitions
+import Encodings
 
 
 -- NOTE FOR EDITING THIS FILE:
@@ -280,73 +281,14 @@ encodeImmediate [_, Immediate (Symbol  s   _)] = replicate (sizeInt s) 0
 encodeImmediate _                              = []
 
 
--- A description of the possible values of an operand, based on ref.x86asm.net
-data Pattern = P_empty      -- An empty operand with no valid values
-             | P_r8         -- An 8-bit register
-             | P_rm8        -- An 8-bit register or memory address
-             | P_r163264    -- A 16/32/64-bit register
-             | P_rm163264   -- A 16/32/64-bit register or memory address
-             | P_imm8       -- An 8-bit immediate
-             | P_imm1632    -- A 16/32-bit immediate
-             | P_imm163264  -- A 16/32/64-bit immediate
-             | P Registers  -- A single register match
-             deriving Show
+-- Get the register from the first operand or fail.
+extractFirstOperand :: [Operand] -> Registers
+extractFirstOperand [Register r, _] = r
+extractFirstOperand _               = error("Expected a register in first " ++
+                                            "operand.")
 
 
--- These instructions all share the same combinations of possible operands.
-standardIntCommands = [ADC, ADD, AND, CMP, OR, SBB, SUB, XOR]
-
-
--- These instructions have no operands (or all operands are implicit).
-noOperandCommands = [SYSCALL]
-
-
--- Operand classifier for the standard integer commands (standardIntCommands).
--- Operands should not be in encoded order.
-patStdInt :: [Operand] -> [Pattern]
-patStdInt [_,               Register r]
-    | elem r registers8                              = [P_rm8     , P_r8      ]
-    | otherwise                                      = [P_rm163264, P_r163264 ]
-patStdInt [Register r,      Address _ _ _ _]
-    | elem r registers8                              = [P_r8      , P_rm8     ]
-    | otherwise                                      = [P_r163264 , P_rm163264]
-patStdInt [Register AL,     Immediate _]             = [P AL      , P_imm8    ]
-patStdInt [Register AX,     Immediate _]             = [P RAX     , P_imm1632 ]
-patStdInt [Register EAX,    Immediate _]             = [P RAX     , P_imm1632 ]
-patStdInt [Register RAX,    Immediate _]             = [P RAX     , P_imm1632 ]
-patStdInt [Address _ _ _ _, Immediate (Literal [_])] = [P_rm8     , P_imm8    ]
-patStdInt [Register r,      Immediate (Literal [_])]
-    | elem r registers8                              = [P_rm8     , P_imm8    ]
-    | otherwise                                      = [P_rm163264, P_imm8    ]
-patStdInt [_,               Immediate _]             = [P_rm163264, P_imm1632 ]
-
-
--- Operand classifier for the mov instruction.
--- Operands should not be in encoded order.
-patMov :: [Operand] -> [Pattern]
-patMov [_,               Register r]
-    | elem r registers8                           = [P_rm8     , P_r8       ]
-    | otherwise                                   = [P_rm163264, P_r163264  ]
-patMov [Register r,      Address _ _ _ _]
-    | elem r registers8                           = [P_r8      , P_rm8      ]
-    | otherwise                                   = [P_r163264 , P_rm163264 ]
-patMov [Register r,      Immediate _]
-    | elem r registers8                           = [P r       , P_imm8     ]
-    | otherwise                                   = [P r       , P_imm163264]
-patMov [Address _ _ _ _, Immediate (Literal [_])] = [P_rm8     , P_imm8     ]
-patMov [Address _ _ _ _, Immediate _]             = [P_rm163264, P_imm1632  ]
-
-
--- Classify a set of operands into an operand pattern.
--- Operands should not be in encoded order.
-pattern :: Command -> [Operand] -> [Pattern]
-pattern cmd operands
-    | cmd == MOV                   = patMov    operands
-    | elem cmd standardIntCommands = patStdInt operands
-    | elem cmd noOperandCommands   = []
-
-
--- Add register index to a base opcode (for example MOV b0+r / b8+r)
+-- Add register index to a base opcode (for example MOV b0+r / b8+r).
 addRegister :: Word8 -> Registers -> Word8
 addRegister base register = do
     let bits = registerIndex register
@@ -354,29 +296,13 @@ addRegister base register = do
     base + (fromIntegral adjustment :: Word8)
 
 
--- Get an opcode based on an assembly command and an operator pattern.
-opcode :: Command -> [Pattern] -> [Word8]
-
-opcode ADD     [P_rm8     , P_r8       ] = [      0x00]
-opcode ADD     [P_rm163264, P_r163264  ] = [      0x01]
-opcode ADD     [P_r8      , P_rm8      ] = [      0x02]
-opcode ADD     [P_r163264 , P_rm163264 ] = [      0x03]
-opcode ADD     [P AL      , P_imm8     ] = [      0x04]
-opcode ADD     [P RAX     , P_imm1632  ] = [      0x05]
-opcode ADD     [P_rm8     , P_imm8     ] = [      0x80]
-opcode ADD     [P_rm163264, P_imm1632  ] = [      0x81]
-opcode ADD     [P_rm163264, P_imm8     ] = [      0x83]
-
-opcode MOV     [P_rm8     , P_r8       ] = [      0x88]
-opcode MOV     [P_rm163264, P_r163264  ] = [      0x89]
-opcode MOV     [P_r8      , P_rm8      ] = [      0x8a]
-opcode MOV     [P_r163264 , P_rm163264 ] = [      0x8b]
-opcode MOV     [P r       , P_imm8     ] = [addRegister 0xb0 r]
-opcode MOV     [P r       , P_imm163264] = [addRegister 0xb8 r]
-opcode MOV     [P_rm8     , P_imm8     ] = [      0xc6]
-opcode MOV     [P_r163264 , P_imm1632  ] = [      0xc7]
-
-opcode SYSCALL [                       ] = [0x0f, 0x05]
+-- Get the primary opcode, making any necessary adjustments (registerAdd).
+resolveOpCode :: Encoding -> Instruction -> Word8
+resolveOpCode enc inst = do
+    let code = primary enc
+    if registerAdd enc
+        then addRegister code (extractFirstOperand (operands inst))
+        else code
 
 
 -- Get the data from an immediate literal operand or fail.
@@ -384,6 +310,67 @@ extractLiteral :: Operand -> [Word8]
 extractLiteral (Immediate (Literal b)) = b
 extractLiteral _                       = error("Invalid operand for data " ++
                                                "command.")
+
+
+-- Get a list of byte counts a given immediate can contain.
+immBytes :: Pattern -> [Int]
+immBytes P_imm8      = [1]
+immBytes P_imm1632   = [2, 4]
+immBytes P_imm163264 = [2, 4, 8]
+immBytes _           = []
+
+
+-- Check if a register is 8-bit.
+is8 :: Registers -> Bool
+is8 r = elem r registers8
+
+
+-- Check if an operand can match the given pattern.
+matchPattern :: Operand -> Pattern -> Bool
+
+matchPattern (Register r) (R r2)          = r == r2
+
+matchPattern (Register r) P_r8            = elem r registers8
+matchPattern (Register r) P_rm8           = elem r registers8
+matchPattern (Register r) P_r163264       = not (elem r registers8)
+matchPattern (Register r) P_rm163264      = not (elem r registers8)
+
+matchPattern (Address _ _ _ _) P_rm8      = True
+matchPattern (Address _ _ _ _) P_rm163264 = True
+
+matchPattern (Immediate (Literal l)) p    = elem (length l) (immBytes p)
+
+matchPattern (Immediate (Symbol s _)) p   = elem (sizeInt s) (immBytes p)
+
+matchPattern _ _                          = False
+
+
+-- Check if an instruction can be encoded using the given Encoding.
+matchEncoding :: Instruction -> Encoding -> Bool
+matchEncoding inst enc = do
+    let opers = (operands inst)
+    let pat = (patterns enc)
+
+    all (== True) ([command inst == mnemonic enc,
+                    length pat == length opers] ++
+                   zipWith matchPattern opers pat)
+
+
+-- Find all Encodings that can encode the given instruction.
+candidates :: Instruction -> [Encoding]
+candidates inst = do
+    let match enc = case matchEncoding inst enc of True  -> [enc]
+                                                   False -> []
+
+    concat (map match encodings)
+
+
+-- Find a valid Encoding for the given instruction.
+chooseEncoding :: Instruction -> Encoding
+chooseEncoding inst =
+    case candidates inst of
+        (first:rest) -> first
+        _            -> error("No valid encoding found for instruction")
 
 
 -- Encode a data pseudo-instruction into bytes (the command must be in
@@ -404,7 +391,10 @@ encodeData i = do
 -- Encode a code instruction into bytes (the command can't be in dataCommands).
 encodeCode :: Instruction -> Encoded
 encodeCode i = do
-    let op = opcode (command i) (pattern (command i) (operands i))
+    let enc = chooseEncoding i
+    let pref0f = if prefix0f enc then [0x0f] else []
+    let primaryOp = resolveOpCode enc i
+    let op = pref0f ++ [primaryOp]
     let ordered = encodedOrder op (operands i)
 
     let size = case opSize (sizeHint i) ordered of
