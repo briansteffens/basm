@@ -786,6 +786,16 @@ testingProgBitsSections =
                 D.command = D.SYSCALL,
                 D.sizeHint = D.NoSize,
                 D.operands = []
+            },
+            D.Instruction {
+                D.source = "add ax, bx",
+                D.labelNames = [],
+                D.command = D.ADD,
+                D.sizeHint = D.NoSize,
+                D.operands = [
+                    D.Register D.AX,
+                    D.Register D.BX
+                ]
             }
         ]
     }]

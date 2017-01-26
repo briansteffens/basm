@@ -37,6 +37,7 @@ data Result a = Success a
 
 
 data Encoded = Encoded {
+    encoding     :: Encoding,
     sizePrefix   :: [Word8],
     rex          :: [Word8],
     op           :: [Word8],
@@ -66,30 +67,6 @@ data EncodedSection = EncodedSection {
     labels  :: [Label],
     symbols :: [NamedOffset]
 }
-
-
--- Opcodes that default to 32-bit operation size without any prefix bytes
-ops32 = [
-         -- ADD
-         [0x01], [0x03], [0x05], [0x81], [0x83],
-
-         -- MOV
-         [0x89], [0x8b], [0xc7],
-         [0xb8], [0xb9], [0xba], [0xbb], [0xbc], [0xbd], [0xbe], [0xbf]] --b8+r
-
-
--- Opcodes that specify one of the operands and therefore need no ModR/M byte
-setRegister = [
-               -- ADD
-               [0x04], [0x05],
-
-               -- MOV
-               [0xb0], [0xb1], [0xb2], [0xb3], [0xb4], [0xb5], [0xb6], [0xb7],
-               [0xb8], [0xb9], [0xba], [0xbb], [0xbc], [0xbd], [0xbe], [0xbf]]
-
-
--- Opcodes in this list need their operators reversed before encoding.
-reversedOpCodes = [[0x02], [0x03]]
 
 
 -- Check if an operand references any of a list of registers
@@ -130,10 +107,10 @@ extensionB [_               , _] = 0
 
 -- Encode a REX byte if necessary.
 -- TODO: Make sure extended registers and high byte registers aren't mixed
-encodeRex :: [Word8] -> Size -> [Operand] -> [Word8]
+encodeRex :: Encoding -> Size -> [Operand] -> [Word8]
 encodeRex _ _ [] = []
-encodeRex op size [op1, op2]
-    | (size == QWORD && elem op ops32) ||
+encodeRex enc size [op1, op2]
+    | (size == QWORD && default32 enc) ||
       anyExtendedRegisters op1 ||
       anyExtendedRegisters op2 = [bitsToByte [0, 1, 0, 0,
                                               if size == QWORD then 1 else 0,
@@ -144,9 +121,9 @@ encodeRex op size [op1, op2]
 
 
 -- Encode a size override prefix if necessary.
-encodeSizePrefix :: [Word8] -> Size -> [Word8]
-encodeSizePrefix op size
-    | elem op ops32 && size == WORD = [0x66]
+encodeSizePrefix :: Encoding -> Size -> [Word8]
+encodeSizePrefix enc size
+    | default32 enc && size == WORD = [0x66]
     | otherwise                     = []
 
 
@@ -202,10 +179,10 @@ registerIndex r
 
 
 -- Reorder operands based on opcode directionality (flipping them if needed).
-encodedOrder :: [Word8] -> [Operand] -> [Operand]
-encodedOrder op operands
-    | elem op reversedOpCodes = reverse operands
-    | otherwise               = operands
+encodedOrder :: Encoding -> [Operand] -> [Operand]
+encodedOrder enc operands
+    | reverseOpers enc = reverse operands
+    | otherwise        = operands
 
 
 -- Generate the first two bits of ModR/M field.
@@ -237,13 +214,13 @@ regBits _            = [0, 0, 0]
 
 
 -- Generate a ModR/M byte if necessary.
-encodeModRm :: [Word8] -> [Operand] -> [Word8]
-encodeModRm _  []         = []
-encodeModRm op [op1, op2]
-    | elem op setRegister = []
-    | otherwise           = [bitsToByte (modBits [op1, op2] ++
-                                         regBits op2 ++
-                                         rmBits op1)]
+encodeModRm :: Encoding -> [Operand] -> [Word8]
+encodeModRm enc [op1, op2]
+    | registerAdd enc = []
+    | otherwise       = [bitsToByte (modBits [op1, op2] ++
+                                     regBits op2 ++
+                                     rmBits op1)]
+encodeModRm _ _       = []
 
 
 -- Convert a scale into its 2-bit SIB byte representation.
@@ -378,6 +355,7 @@ chooseEncoding inst =
 encodeData :: Instruction -> Encoded
 encodeData i = do
     Encoded {
+        encoding     = dataEncoding,
         sizePrefix   = [],
         rex          = [],
         op           = [],
@@ -395,7 +373,7 @@ encodeCode i = do
     let pref0f = if prefix0f enc then [0x0f] else []
     let primaryOp = resolveOpCode enc i
     let op = pref0f ++ [primaryOp]
-    let ordered = encodedOrder op (operands i)
+    let ordered = encodedOrder enc (operands i)
 
     let size = case opSize (sizeHint i) ordered of
               Success   s -> s
@@ -403,10 +381,11 @@ encodeCode i = do
               Fail    m   -> error m
 
     Encoded {
-        sizePrefix   = encodeSizePrefix op size,
-        rex          = encodeRex op size ordered,
+        encoding     = enc,
+        sizePrefix   = encodeSizePrefix enc size,
+        rex          = encodeRex enc size ordered,
         op           = op,
-        modrm        = encodeModRm op ordered,
+        modrm        = encodeModRm enc ordered,
         sib          = encodeSib ordered,
         displacement = encodeDisplacement ordered,
         immediate    = encodeImmediate ordered
@@ -464,7 +443,7 @@ symbolOffsets inst enc offset = do
                          (length (modrm enc)) +
                          (length (sib enc))
 
-    let ordered = encodedOrder (op enc) (operands inst)
+    let ordered = encodedOrder (encoding enc) (operands inst)
 
     let make s n o = NamedOffset { name = n, offset = o, size = s }
 

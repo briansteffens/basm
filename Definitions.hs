@@ -124,12 +124,14 @@ data Pattern = P_r8            -- An 8-bit register
 
 
 data Encoding = Encoding {
-    mnemonic    :: Command,
-    patterns    :: [Pattern],
-    prefix      :: Maybe Word8,
-    prefix0f    :: Bool,
-    primary     :: Word8,
-    registerAdd :: Bool,        -- Add primary opcode to register index
-    secondary   :: Maybe Word8,
-    opcodeExt   :: Int          -- TODO: ?
+    mnemonic     :: Command,
+    patterns     :: [Pattern],
+    prefix       :: Maybe Word8,
+    prefix0f     :: Bool,
+    primary      :: Word8,
+    registerAdd  :: Bool,        -- Add primary opcode to register index
+    secondary    :: Maybe Word8,
+    opcodeExt    :: Int,         -- TODO: ?
+    reverseOpers :: Bool,        -- Operands are reversed for encoding?
+    default32    :: Bool         -- This encoding defaults to 32-bit
 }
