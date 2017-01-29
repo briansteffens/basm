@@ -1,29 +1,26 @@
-module Main where
+module Tokenizer where
 
 import Data.List
 import Data.Maybe
 
 
-data Token = Unquoted String
-           | Quoted   String
+-- This file converts source code into tokens, grouped by line. Tokenization is
+-- intended to occur between preprocessing and parsing.
+--
+-- The primary public interface to this functionality is the tokenize function.
 
 
+-- Each token is a string, which can be either quoted or unquoted.
+data Token = Unquoted String   -- The default: a mnemonic, operand, etc.
+           | Quoted   String   -- A quoted string literal from the source code.
+
+
+-- This represents one tokenized line from the source code.
 data Line = Line {
-    source     :: String,
-    lineNumber :: Int,
-    tokens     :: [Token]
-}
-
-
-data TokenizerState = TokenizerState {
-    remaining :: String,        -- Unprocessed characters
-    current   :: Char,          -- The character being processed
-    previous  :: Maybe Char,    -- The character previously processed
-    next      :: Maybe Char,    -- The next character to be processed
-    building  :: String,        -- The token being built
-    inQuotes  :: Bool,
-    built     :: [Token],       -- The tokens built so far
-    isEscaped :: Bool           -- The previous character was an escape slash
+    source     :: String,   -- The source code of this line.
+    lineNumber :: Int,      -- The line number within the file.
+    labels     :: [String], -- The label names preceding this line.
+    tokens     :: [Token]   -- The source code broken into tokens.
 }
 
 
@@ -55,11 +52,35 @@ secondChar [_]    = Nothing
 secondChar (_:xs) = Just (head xs)
 
 
+-- Internal structure for stepTokenizer. An instance of this record describes
+-- the state of the tokenizer while it's processing a single character.
+data TokenizerState = TokenizerState {
+    remaining :: String,        -- Unprocessed characters
+    current   :: Char,          -- The character being processed
+    previous  :: Maybe Char,    -- The character previously processed
+    next      :: Maybe Char,    -- The next character to be processed
+    buffer    :: String,        -- The unfinished token/label being built
+    line      :: Line,          -- The current line being built
+    inQuotes  :: Bool,
+    isEscaped :: Bool,          -- The previous character was an escape slash
+    inComment :: Bool           -- Comments last from ; or # to a newline
+}
+
+
+emptyLine = Line {
+    source     = "",
+    lineNumber = 1,
+    labels     = [],
+    tokens     = []
+}
+
+
 -- Convert a TokenizerState to a list of tokens, recursively, one character
 -- at a time.
-stepTokenizer :: TokenizerState -> [Token]
+stepTokenizer :: TokenizerState -> [Line]
 stepTokenizer state = do
     let cur = current state
+    let curLine = line state
 
     let inQuote = inQuotes state
 
@@ -84,20 +105,34 @@ stepTokenizer state = do
     let delimiter = not inQuote && isDelimiter cur
 
     -- Should the character be dropped (not saved into the token)?
-    let skip = startOfQuote  ||
-               endOfQuote    ||
-               isEscapeSlash ||
+    let skip = inComment state ||
+               startOfQuote    ||
+               endOfQuote      ||
+               isEscapeSlash   ||
                delimiter
 
     -- Add character to token being built if necessary
-    let newBuilding = (building state) ++ if skip then [] else [resolved]
+    let newBuffer = (buffer state) ++ if skip then [] else [resolved]
 
     -- Complete new token if it's time
-    let newToken = if endOfQuote then Quoted   newBuilding
-                                 else Unquoted newBuilding
+    let newToken = if endOfQuote then Quoted   newBuffer
+                                 else Unquoted newBuffer
 
-    let newTokens = built state ++ if endOfToken && not (null newBuilding)
-                                   then [newToken] else []
+    let isNewThing = endOfToken && not (null newBuffer)
+    let isNewToken = isNewThing && not isColon
+    let isNewLabel = isNewThing && isColon
+
+    -- Updated line
+    let newLine = curLine {
+        source = (source curLine) ++ [cur],
+        tokens = (tokens curLine) ++ if isNewToken then [newToken] else [],
+        labels = (labels curLine) ++ if isNewLabel then [init newBuffer]
+                                                   else []
+    }
+
+    let newline = not inQuote && cur == '\n'
+    let newInComment = not newline && (inComment state || isComment cur)
+    let endOfLine = newline && not (null (tokens curLine))
 
     -- Recursive call
     let recur = stepTokenizer state {
@@ -105,71 +140,33 @@ stepTokenizer state = do
         current   = head (remaining state),
         previous  = Just cur,
         next      = secondChar (remaining state),
-        building  = if endOfToken then "" else newBuilding,
-        built     = newTokens,
+        buffer    = if endOfToken then "" else newBuffer,
         inQuotes  = if inQuote then not endOfQuote else startOfQuote,
-        isEscaped = isEscapeSlash
+        isEscaped = isEscapeSlash,
+        inComment = newInComment,
+        line      = if not newline then newLine else emptyLine {
+            lineNumber = succ (lineNumber (line state)),
+            labels     = if not endOfLine then labels curLine else []
+        }
     }
 
-    let endOfInput = (next state) == Nothing || isComment cur
+    let endOfInput = (next state) == Nothing
 
-    -- Return token list if there's nothing left to process, otherwise recur
-    if endOfInput then newTokens else recur
+    let ret = if endOfLine || endOfInput then [newLine] else []
+    if endOfInput then ret else ret ++ recur
 
 
--- Convert a line of source code into tokens if there are any tokens.
-tokenizeLine :: (String, Int) -> Maybe Line
-tokenizeLine ([],  _  ) = Nothing
-tokenizeLine (src, num) = do
-    let toks = stepTokenizer TokenizerState {
+-- Tokenize source code.
+tokenize :: String -> [Line]
+tokenize src =
+    stepTokenizer TokenizerState {
         remaining = tail src,
         previous  = Nothing,
         current   = head src,
         next      = secondChar src,
-        building  = "",
-        built     = [],
+        buffer    = "",
         inQuotes  = False,
-        isEscaped = False
+        isEscaped = False,
+        inComment = False,
+        line      = emptyLine
     }
-
-    let line = Line {
-        source     = src,
-        lineNumber = num,
-        tokens     = toks
-    }
-
-    if null toks then Nothing else Just line
-     
-
--- Tokenize some source code.
-tokenize :: String -> [Line]
-tokenize src =
-    concat (map maybeToList (map tokenizeLine (zip (lines src) [1..])))
-
-
-main :: IO ()
-main = do
-    putStrLn (intercalate "\n" (map showLine (tokenize testFile)))
-
-
-showLine :: Line -> String
-showLine l = show (lineNumber l) ++ ": |" ++
-             intercalate "| |" (map showToken (tokens l)) ++ "|"
-
-
-showToken :: Token -> String
-showToken (Unquoted s) = s
-showToken (Quoted   s) = s
-
-
-testFile =
-    "%define some(a) thing a \\\n" ++
-    "        more stuff here\n" ++
-    "\n" ++
-    "; a comment\n" ++
-    "      ; another comment\n" ++
-    "section .data\n" ++
-    "       here: \"is a message \\\" yes\" \n" ++
-    "section .text\n" ++
-    "    mov rax, 123;A COMMENT\n" ++
-    "           \t\tmov rbx, 321 ; comment!\n"
