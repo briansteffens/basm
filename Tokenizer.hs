@@ -13,6 +13,13 @@ import Data.Maybe
 -- Each token is a string, which can be either quoted or unquoted.
 data Token = Unquoted String   -- The default: a mnemonic, operand, etc.
            | Quoted   String   -- A quoted string literal from the source code.
+           deriving Eq
+
+
+-- Get the string value from a token.
+tokenString :: Token -> String
+tokenString (Unquoted s) = s
+tokenString (Quoted   s) = s
 
 
 -- This represents one tokenized line from the source code.
@@ -24,7 +31,7 @@ data Line = Line {
 }
 
 
--- Characters the indicate the beginning of a comment.
+-- Characters that indicate the beginning of a comment.
 isComment :: Char -> Bool
 isComment c = elem c [';', '#']
 
