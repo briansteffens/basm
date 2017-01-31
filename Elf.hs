@@ -1,4 +1,4 @@
-module Main where
+module Elf where
 
 import Data.Binary
 import Data.Bits
@@ -528,16 +528,16 @@ combineContents ((sh, bytes):remaining) offset = do
     paddedBytes ++ combineContents remaining nextOffset
 
 
-main :: IO ()
-main = do
+-- Encode and assemble an ELF file.
+assemble :: [D.CodeSection] -> (B.ByteString, String)
+assemble codeSections = do
     -- Encode instructions
-    let progBitsEncoded = map E.encodeSection testingProgBitsSections
+    let progBitsEncoded = map E.encodeSection codeSections
 
 
     -- Generate strtab
     let filename = "file.asm"
     let strTab = generateStrTab progBitsEncoded filename
-    putStrLn ("strtab: " ++ showStrTab strTab)
 
 
     -- Generate null section
@@ -560,27 +560,22 @@ main = do
     let symbols = case contents symTab of
                  SymTabContents c -> c
                  _                -> error("Not a symtab")
-    putStrLn (show (length symbols))
-    putStrLn (intercalate "\n" (map showSymbol symbols))
 
 
     -- Generate relocations
     let relocationSections = generateRelocations progBitsEncoded
-    putStrLn (intercalate "\n" (map showRelocationSection relocationSections))
     let sectionsProgReloSymStr = [nullSection] ++ progBitsSections ++
                                  relocationSections ++ [symTab, strTab]
 
 
     -- Generate shstrtab
     let shStrTab = generateShStrTab sectionsProgReloSymStr
-    putStrLn ("shstrtab: " ++ showStrTab shStrTab)
     let sections = sectionsProgReloSymStr ++ [shStrTab]
 
 
     -- Generate section headers
     let sectionsOffset = elfHeaderSize + sectionHeaderSize * length sections
     let shs = sectionHeaders sections sections sectionsOffset
-    putStrLn (intercalate "\n" (map showSectionHeader shs))
 
 
     -- Generate ELF header
@@ -623,8 +618,16 @@ main = do
               combineContents (zip shs allContents) sectionsOffset
 
 
-    putStrLn (intercalate " " (map show out))
-    B.writeFile "basm.o" (B.pack out)
+    let debug = "strtab: " ++ showStrTab strTab ++ "\n" ++
+                show (length symbols) ++ "\n" ++
+                intercalate "\n" (map showSymbol symbols) ++ "\n" ++
+                intercalate "\n" (map showRelocationSection
+                                      relocationSections) ++ "\n" ++
+                "shstrtab: " ++ showStrTab shStrTab ++ "\n" ++
+                intercalate "\n" (map showSectionHeader shs) ++ "\n" ++
+                intercalate " " (map show out) ++ "\n"
+
+    (B.pack out, debug)
 
 
 showSymbolRelation :: SymbolRelation -> String

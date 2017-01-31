@@ -1,4 +1,4 @@
-module Main where
+module Parser where
 
 import Data.Char
 import Data.List
@@ -105,24 +105,34 @@ splitOperands :: [Token] -> [[Token]]
 splitOperands t = split (== ControlChar ',') t
 
 
--- Parse an operand from a list of tokens.
-parseOperand :: Line -> [Token] -> ([Operand], [Error])
-parseOperand l [Unquoted t] = do
+data OperandPart = RegisterPart Registers
+                 | NumericPart  Int
+                 | SymbolPart   String
+                 | ControlPart  Char
+                 | QuotedPart   String
+
+
+makePart :: Maybe Registers -> Maybe Int -> String -> OperandPart
+makePart (Just r) _        _ = RegisterPart r
+makePart Nothing  (Just n) _ = NumericPart n
+makePart Nothing  Nothing  s = SymbolPart s
+
+
+parsePart :: Token -> OperandPart
+parsePart (ControlChar c) = ControlPart c
+parsePart (Quoted      s) = QuotedPart  s
+parsePart (Unquoted    t) = do
     let parsedRegister = readMaybe (map toUpper t) :: Maybe Registers
-    let parsedInt = readMaybe t :: Maybe Integer
+    let parsedInt = readMaybe t :: Maybe Int
 
-    let ret = if parsedRegister /= Nothing
-                 then [Register (fromJust parsedRegister)]
-                 else if parsedInt /= Nothing
-                    then [Immediate (Literal (toBytes (fromJust parsedInt)))]
-                    else []
+    makePart parsedRegister parsedInt t
 
-    let err = if null ret then [LineError l ("Unrecognized operand: " ++ t)]
-                          else []
 
-    (ret, err)
-
-parseOperand l _ = ([], [LineError l "Unrecognized operand"])
+-- Parse an operand from a list of tokens.
+parseOperand :: Line -> [OperandPart] -> ([Operand], [Error])
+parseOperand l []               = ([], [])
+parseOperand l [RegisterPart r] = ([Register r], [])
+parseOperand l [NumericPart  n] = ([Immediate (Literal (toBytes n))], [])
 
 
 -- Concatenate the members of a tuple of lists.
@@ -174,7 +184,8 @@ parseLine line = do
     let (size, sizeErr) = resolveSize line sizes
 
     let operandTokens = splitOperands (tail (tokens line))
-    let operandResults = map (parseOperand line) operandTokens
+    let operandParts = map (map parsePart) operandTokens
+    let operandResults = map (parseOperand line) operandParts
     let (operands, operandErr) = foldl concatTuple ([], []) operandResults
 
     let inst = Instruction {
@@ -233,14 +244,12 @@ main = do
     let (sections, errors) = parse testFile
 
     putStrLn ("\n" ++ (intercalate "\n\n" (map showCodeSection sections)))
-    putStrLn "\n\n"
-    putStrLn ("errors:\n" ++ (intercalate "\n" (map showError errors)))
-    putStrLn "\n\n"
+    putStrLn ("\nerrors:\n" ++ (intercalate "\n" (map showError errors)))
 
 
 showCodeSection :: CodeSection -> String
 showCodeSection sec =
-    "CodeSection " ++ (sectionName sec) ++ " -----------------\n" ++
+    "section " ++ (sectionName sec) ++ "\n" ++
         intercalate "\n" (map showInstruction (instructions sec))
 
 
@@ -278,6 +287,7 @@ testFile =
     "# look more:\n" ++
     "section .text\n" ++
     "   _start:\n" ++
-    "       mov rax, 123#a comment\n" ++
+    "       mov rax, 60#a comment\n" ++
+    "       mov rdi, 77\n" ++
     --"       add qword rbx, [rcx + 2*rcx+rdx]\n" ++
     "       syscall"

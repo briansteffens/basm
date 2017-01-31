@@ -161,8 +161,8 @@ data Encoding = Encoding {
 showInstruction :: Instruction -> String
 showInstruction inst = do
     let labels = if null (labelNames inst) then ""
-                 else intercalate ": " (labelNames inst) ++ ":\n"
+                 else "  " ++ intercalate ": " (labelNames inst) ++ ":\n"
     let size = if sizeHint inst == NoSize then ""
                else (show (sizeHint inst) ++ " ")
-    labels ++ show (command inst) ++ " " ++ size ++
+    labels ++ "    " ++ show (command inst) ++ " " ++ size ++
         intercalate ", " (map showOperand (operands inst))
