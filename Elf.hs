@@ -700,7 +700,7 @@ testingProgBitsSections =
             D.Instruction {
                 D.source = "message: db 'Greetings!', 10",
                 D.labelNames = ["message"],
-                D.command = D.DATA,
+                D.command = D.DB,
                 D.sizeHint = D.NoSize,
                 D.operands = [
                     D.Immediate (D.Literal [0x47, 0x72, 0x65, 0x65, 0x74, 0x69,

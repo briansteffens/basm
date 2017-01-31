@@ -1,7 +1,8 @@
 module Definitions where
 
-import Data.Int
 import Data.Binary
+import Data.Int
+import Data.List
 
 
 data Command = ADC
@@ -15,12 +16,15 @@ data Command = ADC
              | SYSCALL
              | XOR
              -- Data pseudo-commands
-             | DATA
-             deriving (Eq, Show)
+             | DB
+             | DW
+             | DD
+             | DQ
+             deriving (Eq, Show, Read)
 
 
 -- Pseudo-commands that render data rather than x64 instructions
-dataCommands = [DATA]
+dataCommands = [DB, DW, DD, DQ]
 
 
 data Size = BYTE
@@ -49,7 +53,7 @@ data Registers = NoRegister
                | R8W  | R9W  | R10W | R11W | R12W | R13W | R14W | R15W
                | R8B  | R9B  | R10B | R11B | R12B | R13B | R14B | R15B
                | RIP  | EIP
-               deriving (Eq, Show)
+               deriving (Eq, Show, Read)
 
 
 registersHigh8 = [AH, BH, CH, DH]
@@ -85,6 +89,7 @@ data Scale = NoScale
            | Scale2
            | Scale4
            | Scale8
+           deriving Show
 
 
 data ImmediateDescriptor = Literal [Word8]
@@ -94,6 +99,22 @@ data ImmediateDescriptor = Literal [Word8]
 data Operand = Register  Registers
              | Address   Registers Scale Registers Displacement
              | Immediate ImmediateDescriptor
+
+
+showDisplacement :: Displacement -> String
+showDisplacement NoDisplacement = "NoDisplacement"
+showDisplacement (Displacement8 i) = "Displacement8 " ++ show i
+showDisplacement (Displacement32 i) = "Displacement32 " ++ show i
+showDisplacement (DisplacementSymbol size str) = "DisplacementSymbol " ++
+                                                 show size ++ " " ++ str
+
+
+showOperand :: Operand -> String
+showOperand (Register r) = show r
+showOperand (Address b s i d) = show b ++ " + " ++ show s ++ " * " ++ show i ++
+                                " + " ++ showDisplacement d ++ "]"
+showOperand (Immediate (Literal b)) = intercalate " " (map show b)
+showOperand (Immediate (Symbol size str)) = "SYM " ++ show size ++ " " ++ str
 
 
 data Instruction = Instruction {
@@ -135,3 +156,13 @@ data Encoding = Encoding {
     reverseOpers :: Bool,        -- Operands are reversed for encoding?
     default32    :: Bool         -- This encoding defaults to 32-bit
 }
+
+
+showInstruction :: Instruction -> String
+showInstruction inst = do
+    let labels = if null (labelNames inst) then ""
+                 else intercalate ": " (labelNames inst) ++ ":\n"
+    let size = if sizeHint inst == NoSize then ""
+               else (show (sizeHint inst) ++ " ")
+    labels ++ show (command inst) ++ " " ++ size ++
+        intercalate ", " (map showOperand (operands inst))

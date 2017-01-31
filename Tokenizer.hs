@@ -11,8 +11,9 @@ import Data.Maybe
 
 
 -- Each token is a string, which can be either quoted or unquoted.
-data Token = Unquoted String   -- The default: a mnemonic, operand, etc.
-           | Quoted   String   -- A quoted string literal from the source code.
+data Token = Unquoted    String -- The default: a mnemonic, operand, etc.
+           | Quoted      String -- A quoted string literal
+           | ControlChar Char   -- Comma, plus, etc.
            deriving Eq
 
 
@@ -36,9 +37,14 @@ isComment :: Char -> Bool
 isComment c = elem c [';', '#']
 
 
+-- Characters that delimit tokens but are also tokens themselves.
+isControlChar :: Char -> Bool
+isControlChar c = elem c [',', '[', ']', '+', '*']
+
+
 -- Characters that delimit tokens.
 isDelimiter :: Char -> Bool
-isDelimiter c = elem c [' ', '\t', '\n', ','] || isComment c
+isDelimiter c = elem c [' ', '\t', '\n'] || isControlChar c || isComment c
 
 
 -- Convert a character from an escape sequence to its meaning (\n => ASCII 10).
@@ -125,6 +131,9 @@ stepTokenizer state = do
     let newToken = if endOfQuote then Quoted   newBuffer
                                  else Unquoted newBuffer
 
+    -- Include comma/bracket tokens if needed
+    let controlToken = if isControlChar cur then [ControlChar cur] else []
+
     let isNewThing = endOfToken && not (null newBuffer)
     let isNewToken = isNewThing && not isColon
     let isNewLabel = isNewThing && isColon
@@ -132,7 +141,8 @@ stepTokenizer state = do
     -- Updated line
     let newLine = curLine {
         source = (source curLine) ++ [cur],
-        tokens = (tokens curLine) ++ if isNewToken then [newToken] else [],
+        tokens = (tokens curLine) ++ if isNewToken then [newToken] else [] ++
+                                     controlToken,
         labels = (labels curLine) ++ if isNewLabel then [init newBuffer]
                                                    else []
     }

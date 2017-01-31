@@ -22,7 +22,7 @@ enc = Encoding {
 
 -- Placeholder for data encoding pseudo-instructions
 dataEncoding = enc {
-    mnemonic = DATA
+    mnemonic = DB
 }
 
 
