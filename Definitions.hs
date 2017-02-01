@@ -158,6 +158,15 @@ data Encoding = Encoding {
 }
 
 
+-- Get the size/width of a register
+registerSize :: Registers -> Size
+registerSize r
+    | elem r registers8  = BYTE
+    | elem r registers16 = WORD
+    | elem r registers64 = QWORD
+    | otherwise          = DWORD
+
+
 showInstruction :: Instruction -> String
 showInstruction inst = do
     let labels = if null (labelNames inst) then ""

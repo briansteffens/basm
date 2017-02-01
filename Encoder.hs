@@ -127,15 +127,6 @@ encodeSizePrefix enc size
     | otherwise                     = []
 
 
--- Get the size/width of a register
-registerSize :: Registers -> Size
-registerSize r
-    | elem r registers8  = BYTE
-    | elem r registers16 = WORD
-    | elem r registers64 = QWORD
-    | otherwise          = DWORD
-
-
 -- Infer the operation size based on its operands, if possible.
 inferOpSize :: [Operand] -> Result Size
 inferOpSize [Address _ _ _ _, Immediate _    ] = Success NoSize

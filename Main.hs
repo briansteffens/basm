@@ -23,12 +23,14 @@ main = do
 testFile =
     "; a comment\n" ++
     "section .data\n" ++
-    --"   message:\n" ++
-    --"   thing: db   \"here is a message \\\\ \\\" with quote\"\n" ++
-    "# look more:\n" ++
+    "    message: db \"Greetings!\", 10\n" ++
     "section .text\n" ++
     "   _start:\n" ++
-    "       mov rax, 60#a comment\n" ++
+    "       mov rax, 1\n" ++
+    "       mov rdi, 1\n" ++
+    "       mov rsi, message\n" ++
+    "       mov rdx, 11\n" ++
+    "       syscall\n" ++
+    "       mov rax, 60\n" ++
     "       mov rdi, 77\n" ++
-    --"       add qword rbx, [rcx + 2*rcx+rdx]\n" ++
     "       syscall"

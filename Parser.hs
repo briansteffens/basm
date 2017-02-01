@@ -1,9 +1,10 @@
 module Parser where
 
+import Data.Binary
 import Data.Char
 import Data.List
 import Data.Maybe
-import Text.Read
+import qualified Text.Read as TR
 import Debug.Trace
 
 import Shared
@@ -106,13 +107,13 @@ splitOperands t = split (== ControlChar ',') t
 
 
 data OperandPart = RegisterPart Registers
-                 | NumericPart  Int
+                 | NumericPart  Integer
                  | SymbolPart   String
                  | ControlPart  Char
                  | QuotedPart   String
 
 
-makePart :: Maybe Registers -> Maybe Int -> String -> OperandPart
+makePart :: Maybe Registers -> Maybe Integer -> String -> OperandPart
 makePart (Just r) _        _ = RegisterPart r
 makePart Nothing  (Just n) _ = NumericPart n
 makePart Nothing  Nothing  s = SymbolPart s
@@ -122,8 +123,8 @@ parsePart :: Token -> OperandPart
 parsePart (ControlChar c) = ControlPart c
 parsePart (Quoted      s) = QuotedPart  s
 parsePart (Unquoted    t) = do
-    let parsedRegister = readMaybe (map toUpper t) :: Maybe Registers
-    let parsedInt = readMaybe t :: Maybe Int
+    let parsedRegister = TR.readMaybe (map toUpper t) :: Maybe Registers
+    let parsedInt = TR.readMaybe t :: Maybe Integer
 
     makePart parsedRegister parsedInt t
 
@@ -132,7 +133,9 @@ parsePart (Unquoted    t) = do
 parseOperand :: Line -> [OperandPart] -> ([Operand], [Error])
 parseOperand l []               = ([], [])
 parseOperand l [RegisterPart r] = ([Register r], [])
-parseOperand l [NumericPart  n] = ([Immediate (Literal (toBytes n))], [])
+parseOperand l [NumericPart  n] = ([Immediate (Literal
+                                    (takeWhile (/= 0) (toBytes n)))], [])
+parseOperand l [SymbolPart   s] = ([Immediate (Symbol QWORD s)], [])
 
 
 -- Concatenate the members of a tuple of lists.
@@ -171,10 +174,47 @@ resolveSize line (first:rest) = do
     (first, errors)
 
 
+-- Convert a character to a byte in ASCII format.
+asciiByte :: Char -> Word8
+asciiByte c = fromIntegral (ord c)
+
+
+-- Parse operand parts for a DB pseudo-instruction, which converts everything
+-- to bytes.
+parseDbOperand :: [OperandPart] -> [Word8]
+parseDbOperand [NumericPart n] = [fromIntegral n :: Word8]
+parseDbOperand [QuotedPart  s] = map asciiByte s
+
+
+-- Parse operand parts into AST operands.
+parseOperands :: Line -> Command -> [[OperandPart]] -> ([Operand], [Error])
+parseOperands l DB p = ([Immediate (Literal (concat (map parseDbOperand p)))],
+                        [])
+parseOperands l _  p = do
+    foldl concatTuple ([], []) (map (parseOperand l) p)
+
+
+-- Add 0-value padding bytes to the end of a bytestring until it reaches the
+-- number of bytes indicated by the Size.
+padBytes :: Size -> [Word8] -> [Word8]
+padBytes size bytes = bytes ++ replicate (sizeInt size - length bytes) 0x00
+
+
+-- Pad immediate literals to their appropriate sizes. This has to be done as a
+-- separate pass to operand parsing because of situations where the number of
+-- immediate bytes is only made unambiguous from analysis of the other
+-- operands. Example: in 'mov rax, 7' you don't know that 7 needs to be a
+-- qword until you know it's being moved into a 64-bit register (rax).
+padLiterals :: [Operand] -> [Operand]
+padLiterals [Register r, Immediate (Literal l)] = do
+    [Register r, Immediate (Literal (padBytes (registerSize r) l))]
+padLiterals opers = opers
+
+
 -- Parse an instruction if possible.
 parseLine :: Line -> (Maybe Instruction, [Error])
 parseLine line = do
-    let commandParsed = readMaybe (firstToken line) :: Maybe Command
+    let commandParsed = TR.readMaybe (firstToken line) :: Maybe Command
 
     let commandErr = if commandParsed /= Nothing
                          then []
@@ -185,15 +225,17 @@ parseLine line = do
 
     let operandTokens = splitOperands (tail (tokens line))
     let operandParts = map (map parsePart) operandTokens
-    let operandResults = map (parseOperand line) operandParts
-    let (operands, operandErr) = foldl concatTuple ([], []) operandResults
+    let (operands, operandErr) = parseOperands line (fromJust commandParsed)
+                                 operandParts
+
+    let operands2 = padLiterals operands
 
     let inst = Instruction {
         --source = "",
         labelNames = labels line,
         sizeHint = size,
         command = fromJust commandParsed,
-        operands = operands
+        operands = operands2
     }
 
     let err = commandErr ++ sizeErr ++ operandErr
@@ -239,14 +281,6 @@ justList (Nothing:rest) = justList rest
 justList (Just x:rest)  = [x] ++ justList rest
 
 
-main :: IO ()
-main = do
-    let (sections, errors) = parse testFile
-
-    putStrLn ("\n" ++ (intercalate "\n\n" (map showCodeSection sections)))
-    putStrLn ("\nerrors:\n" ++ (intercalate "\n" (map showError errors)))
-
-
 showCodeSection :: CodeSection -> String
 showCodeSection sec =
     "section " ++ (sectionName sec) ++ "\n" ++
@@ -277,17 +311,3 @@ showToken :: Token -> String
 showToken (Unquoted    s) = s
 showToken (Quoted      s) = s
 showToken (ControlChar c) = [c]
-
-
-testFile =
-    "; a comment\n" ++
-    "section .data\n" ++
-    --"   message:\n" ++
-    --"   thing: db   \"here is a message \\\\ \\\" with quote\"\n" ++
-    "# look more:\n" ++
-    "section .text\n" ++
-    "   _start:\n" ++
-    "       mov rax, 60#a comment\n" ++
-    "       mov rdi, 77\n" ++
-    --"       add qword rbx, [rcx + 2*rcx+rdx]\n" ++
-    "       syscall"
