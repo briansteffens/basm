@@ -9,6 +9,8 @@ data Command = ADC
              | ADD
              | AND
              | CMP
+             | DEC
+             | JG
              | MOV
              | OR
              | SBB
@@ -27,6 +29,10 @@ data Command = ADC
 dataCommands = [DB, DW, DD, DQ]
 
 
+-- Jump/call commands whose operands reference RIP-relative addresses
+jumpCommands = [JG]
+
+
 data Size = BYTE
           | WORD
           | DWORD
@@ -40,6 +46,13 @@ sizeInt BYTE  = 1
 sizeInt WORD  = 2
 sizeInt DWORD = 4
 sizeInt QWORD = 8
+
+
+intSize :: Int -> Size
+intSize 1 = BYTE
+intSize 2 = WORD
+intSize 4 = DWORD
+intSize 8 = QWORD
 
 
 data Registers = NoRegister
@@ -99,6 +112,7 @@ data ImmediateDescriptor = Literal [Word8]
 data Operand = Register  Registers
              | Address   Registers Scale Registers Displacement
              | Immediate ImmediateDescriptor
+             | Relative  ImmediateDescriptor
 
 
 showDisplacement :: Displacement -> String
@@ -115,6 +129,8 @@ showOperand (Address b s i d) = show b ++ " + " ++ show s ++ " * " ++ show i ++
                                 " + " ++ showDisplacement d ++ "]"
 showOperand (Immediate (Literal b)) = intercalate " " (map show b)
 showOperand (Immediate (Symbol size str)) = "SYM " ++ show size ++ " " ++ str
+showOperand (Relative (Literal b)) = "REL " ++ intercalate " " (map show b)
+showOperand (Relative (Symbol size str)) = "RELSYM " ++ show size ++ " " ++ str
 
 
 data Instruction = Instruction {
@@ -140,6 +156,8 @@ data Pattern = P_r8            -- An 8-bit register
              | P_imm8          -- An 8-bit immediate
              | P_imm1632       -- A 16/32-bit immediate
              | P_imm163264     -- A 16/32/64-bit immediate
+             | P_rel8          -- An 8-bit relative offset
+             | P_rel1632       -- A 16/32-bit relative offset
              | R Registers     -- A single register match
              deriving Show
 
@@ -154,7 +172,8 @@ data Encoding = Encoding {
     secondary    :: Maybe Word8,
     opcodeExt    :: Int,         -- TODO: ?
     reverseOpers :: Bool,        -- Operands are reversed for encoding?
-    default32    :: Bool         -- This encoding defaults to 32-bit
+    default32    :: Bool,        -- This encoding defaults to 32-bit
+    opExtension  :: Maybe Word8  -- ModR/M opcode extension (0-7)
 }
 
 

@@ -16,7 +16,8 @@ enc = Encoding {
     secondary    = Nothing,
     opcodeExt    = 0,
     reverseOpers = False,
-    default32    = False
+    default32    = False,
+    opExtension  = Nothing
 }
 
 
@@ -39,6 +40,83 @@ encodings = [
         primary      = 0x03,
         reverseOpers = True,
         default32    = True
+    },
+    enc {
+        mnemonic     = CMP,
+        patterns     = [P_rm8, P_r8],
+        primary      = 0x38
+    },
+    enc {
+        mnemonic     = CMP,
+        patterns     = [P_rm163264, P_r163264],
+        primary      = 0x39,
+        default32    = True
+    },
+    enc {
+        mnemonic     = CMP,
+        patterns     = [P_r8, P_rm8],
+        primary      = 0x3A,
+        reverseOpers = True
+    },
+    enc {
+        mnemonic     = CMP,
+        patterns     = [P_r163264, P_rm163264],
+        primary      = 0x3B,
+        reverseOpers = True,
+        default32    = True
+    },
+    enc {
+        mnemonic     = CMP,
+        patterns     = [R AL, P_imm8],
+        primary      = 0x3C
+    },
+    enc {
+        mnemonic     = CMP,
+        patterns     = [R RAX, P_imm1632],
+        primary      = 0x3D
+    },
+    enc {
+        mnemonic     = CMP,
+        patterns     = [P_rm8, P_imm8],
+        primary      = 0x80,
+        opExtension  = Just 7
+    },
+    enc {
+        mnemonic     = CMP,
+        patterns     = [P_rm163264, P_imm1632],
+        primary      = 0x81,
+        default32    = True,
+        opExtension  = Just 7
+    },
+    enc {
+        mnemonic     = CMP,
+        patterns     = [P_rm163264, P_imm8],
+        primary      = 0x83,
+        opExtension  = Just 7
+    },
+    enc {
+        mnemonic     = DEC,
+        patterns     = [P_rm8],
+        primary      = 0xFE,
+        opExtension  = Just 1
+    },
+    enc {
+        mnemonic     = DEC,
+        patterns     = [P_rm163264],
+        primary      = 0xFF,
+        default32    = True,
+        opExtension  = Just 1
+    },
+    enc {
+        mnemonic     = JG,
+        patterns     = [P_rel8],
+        primary      = 0x7F
+    },
+    enc {
+        mnemonic     = JG,
+        patterns     = [P_rel1632],
+        prefix0f     = True,
+        primary      = 0x8F
     },
     enc {
         mnemonic     = MOV,

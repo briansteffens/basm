@@ -25,7 +25,7 @@ tokenString (Quoted   s) = s
 
 -- This represents one tokenized line from the source code.
 data Line = Line {
-    source     :: String,   -- The source code of this line.
+    code       :: String,   -- The source code of this line.
     lineNumber :: Int,      -- The line number within the file.
     labels     :: [String], -- The label names preceding this line.
     tokens     :: [Token]   -- The source code broken into tokens.
@@ -81,7 +81,7 @@ data TokenizerState = TokenizerState {
 
 
 emptyLine = Line {
-    source     = "",
+    code       = "",
     lineNumber = 1,
     labels     = [],
     tokens     = []
@@ -140,7 +140,7 @@ stepTokenizer state = do
 
     -- Updated line
     let newLine = curLine {
-        source = (source curLine) ++ [cur],
+        code   = (code curLine) ++ [cur],
         tokens = (tokens curLine) ++ if isNewToken then [newToken] else [] ++
                                      controlToken,
         labels = (labels curLine) ++ if isNewLabel then [init newBuffer]

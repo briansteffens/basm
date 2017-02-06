@@ -130,12 +130,14 @@ parsePart (Unquoted    t) = do
 
 
 -- Parse an operand from a list of tokens.
-parseOperand :: Line -> [OperandPart] -> ([Operand], [Error])
-parseOperand l []               = ([], [])
-parseOperand l [RegisterPart r] = ([Register r], [])
-parseOperand l [NumericPart  n] = ([Immediate (Literal
-                                    (takeWhile (/= 0) (toBytes n)))], [])
-parseOperand l [SymbolPart   s] = ([Immediate (Symbol QWORD s)], [])
+parseOperand :: Line -> Command -> [OperandPart] -> ([Operand], [Error])
+parseOperand l _   []               = ([], [])
+parseOperand l _   [RegisterPart r] = ([Register r], [])
+parseOperand l _   [NumericPart  n] = ([Immediate (Literal
+                                        (takeWhile (/= 0) (toBytes n)))], [])
+parseOperand l cmd [SymbolPart   s]
+    | elem cmd jumpCommands         = ([Relative  (Symbol DWORD s)], [])
+    | otherwise                     = ([Immediate (Symbol QWORD s)], [])
 
 
 -- Concatenate the members of a tuple of lists.
@@ -188,10 +190,10 @@ parseDbOperand [QuotedPart  s] = map asciiByte s
 
 -- Parse operand parts into AST operands.
 parseOperands :: Line -> Command -> [[OperandPart]] -> ([Operand], [Error])
-parseOperands l DB p = ([Immediate (Literal (concat (map parseDbOperand p)))],
-                        [])
-parseOperands l _  p = do
-    foldl concatTuple ([], []) (map (parseOperand l) p)
+parseOperands l DB  p = ([Immediate (Literal (concat (map parseDbOperand p)))],
+                         [])
+parseOperands l cmd p = do
+    foldl concatTuple ([], []) (map (parseOperand l cmd) p)
 
 
 -- Add 0-value padding bytes to the end of a bytestring until it reaches the
@@ -216,6 +218,7 @@ parseLine :: Line -> (Maybe Instruction, [Error])
 parseLine line = do
     let commandParsed = TR.readMaybe (firstToken line) :: Maybe Command
 
+    let command = fromJust commandParsed
     let commandErr = if commandParsed /= Nothing
                          then []
                          else [LineError line "Unrecognized command."]
@@ -225,17 +228,16 @@ parseLine line = do
 
     let operandTokens = splitOperands (tail (tokens line))
     let operandParts = map (map parsePart) operandTokens
-    let (operands, operandErr) = parseOperands line (fromJust commandParsed)
-                                 operandParts
+    let (operands, operandErr) = parseOperands line command operandParts
 
     let operands2 = padLiterals operands
 
     let inst = Instruction {
-        --source = "",
+        source     = code line,
         labelNames = labels line,
-        sizeHint = size,
-        command = fromJust commandParsed,
-        operands = operands2
+        sizeHint   = size,
+        command    = command,
+        operands   = operands2
     }
 
     let err = commandErr ++ sizeErr ++ operandErr
@@ -289,7 +291,7 @@ showCodeSection sec =
 
 showError :: Error -> String
 showError (Error       s) = "ERROR: " ++ s
-showError (LineError l s) = "ERROR: " ++ s ++ "\n  on: " ++ showLine l
+showError (LineError l s) = "ERROR: " ++ s ++ "\n  line " ++ showLine l
 
 
 showSection :: Section -> String
@@ -302,7 +304,7 @@ showLine :: Line -> String
 showLine l = do
     let lbls = labels l
 
-    show (lineNumber l) ++ ":\n  " ++
+    "[" ++ show (lineNumber l) ++ "] " ++ code l ++ "\n  " ++
         (if null lbls then "" else (intercalate "," lbls ++ ":\n  ")) ++ "|" ++
         intercalate "| |" (map showToken (tokens l)) ++ "|"
 

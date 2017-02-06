@@ -5,6 +5,7 @@ import Data.List
 import Data.Binary
 import Data.Bits
 import qualified Data.ByteString as B
+import Data.Maybe
 
 import Numeric (showHex)
 import Debug.Trace (trace)
@@ -74,6 +75,7 @@ anyRegisters :: Operand -> [Registers] -> Bool
 anyRegisters (Immediate _        ) _    = False
 anyRegisters (Register  r        ) regs = elem r  regs
 anyRegisters (Address   r1 _ r2 _) regs = elem r1 regs || elem r2 regs
+anyRegisters (Relative  _        ) _    = False
 
 
 -- Check if an operand references any extended registers
@@ -107,8 +109,17 @@ extensionB [_               , _] = 0
 
 -- Encode a REX byte if necessary.
 -- TODO: Make sure extended registers and high byte registers aren't mixed
+-- TODO: Unify the 1- and 2-operand versions below
 encodeRex :: Encoding -> Size -> [Operand] -> [Word8]
-encodeRex _ _ [] = []
+encodeRex _ _ []  = []
+encodeRex enc size [op]
+    | (size == QWORD && default32 enc) ||
+      anyExtendedRegisters op = [bitsToByte [0, 1, 0, 0,
+                                             if size == QWORD then 1 else 0,
+                                             extensionR [op, op],
+                                             extensionX [op, op],
+                                             extensionB [op, op]]]
+    | otherwise               = []
 encodeRex enc size [op1, op2]
     | (size == QWORD && default32 enc) ||
       anyExtendedRegisters op1 ||
@@ -129,6 +140,9 @@ encodeSizePrefix enc size
 
 -- Infer the operation size based on its operands, if possible.
 inferOpSize :: [Operand] -> Result Size
+inferOpSize [Relative (Symbol s _)           ] = Success s
+inferOpSize [Relative (Literal l)            ] = Success (intSize (length l))
+inferOpSize [Register r                      ] = Success (registerSize r)
 inferOpSize [Address _ _ _ _, Immediate _    ] = Success NoSize
 inferOpSize [Register r     , Immediate _    ] = Success (registerSize r)
 inferOpSize [Address _ _ _ _, Register r     ] = Success (registerSize r)
@@ -155,18 +169,32 @@ opSize :: Size -> [Operand] -> Result Size
 opSize hint operands = applySizeHint (inferOpSize operands) hint
 
 
+-- Convert a 3-bit integer into a list of bits.
+-- TODO: find a built-in?
+toBits :: Word8 -> [Int]
+toBits 0 = [0, 0, 0]
+toBits 1 = [0, 0, 1]
+toBits 2 = [0, 1, 0]
+toBits 3 = [0, 1, 1]
+toBits 4 = [1, 0, 0]
+toBits 5 = [1, 0, 1]
+toBits 6 = [1, 1, 0]
+toBits 7 = [1, 1, 1]
+toBits n = error("Invalid toBits argument: " ++ show n)
+
+
 -- Get the least significant 3 bits for a register.
 registerIndex :: Registers -> [Int]
-registerIndex NoRegister                                    = [0, 0, 0]
+registerIndex NoRegister                                    = toBits 0
 registerIndex r
-    | elem r [AL, AX, EAX, RAX, R8B, R8W, R8D, R8]          = [0, 0, 0]
-    | elem r [CL, CX, ECX, RCX, R9B, R9W, R9D, R9]          = [0, 0, 1]
-    | elem r [DL, DX, EDX, RDX, R10B, R10W, R10D, R10]      = [0, 1, 0]
-    | elem r [BL, BX, EBX, RBX, R11B, R11W, R11D, R11]      = [0, 1, 1]
-    | elem r [AH, SPL, SP, ESP, RSP, R12B, R12W, R12D, R12] = [1, 0, 0]
-    | elem r [CH, BPL, BP, EBP, RBP, R13B, R13W, R13D, R13] = [1, 0, 1]
-    | elem r [DH, SIL, SI, ESI, RSI, R14B, R14W, R14D, R14] = [1, 1, 0]
-    | elem r [BH, DIL, DI, EDI, RDI, R15B, R15W, R15D, R15] = [1, 1, 1]
+    | elem r [AL, AX, EAX, RAX, R8B, R8W, R8D, R8]          = toBits 0
+    | elem r [CL, CX, ECX, RCX, R9B, R9W, R9D, R9]          = toBits 1
+    | elem r [DL, DX, EDX, RDX, R10B, R10W, R10D, R10]      = toBits 2
+    | elem r [BL, BX, EBX, RBX, R11B, R11W, R11D, R11]      = toBits 3
+    | elem r [AH, SPL, SP, ESP, RSP, R12B, R12W, R12D, R12] = toBits 4
+    | elem r [CH, BPL, BP, EBP, RBP, R13B, R13W, R13D, R13] = toBits 5
+    | elem r [DH, SIL, SI, ESI, RSI, R14B, R14W, R14D, R14] = toBits 6
+    | elem r [BH, DIL, DI, EDI, RDI, R15B, R15W, R15D, R15] = toBits 7
 
 
 -- Reorder operands based on opcode directionality (flipping them if needed).
@@ -187,6 +215,7 @@ modBits [Address  _   _ _ (Displacement8      _  ), _] = [0, 1]
 modBits [Address  _   _ _ (Displacement32     _  ), _] = [1, 0]
 modBits [Address  _   _ _ (DisplacementSymbol _ _), _] = [1, 0]
 modBits [Register _                               , _] = [1, 1]
+modBits [Register _                                  ] = [1, 1]
 
 
 -- Generate the R/M bits of a ModR/M byte.
@@ -199,17 +228,22 @@ rmBits (Address  _   _       _          _                 ) = [1, 0, 0] -- SIB
 
 
 -- Generate the REG bits of a ModR/M byte.
-regBits :: Operand -> [Int]
-regBits (Register r) = registerIndex r
-regBits _            = [0, 0, 0] 
+regBits :: Encoding -> Operand -> [Int]
+regBits Encoding { opExtension=Just ext } _ = toBits ext
+regBits enc (Register r)                    = registerIndex r
+regBits _ _                                 = [0, 0, 0]
 
 
 -- Generate a ModR/M byte if necessary.
+-- TODO: unify the 1- and 2-operand versions below
 encodeModRm :: Encoding -> [Operand] -> [Word8]
+encodeModRm enc [op]  = [bitsToByte (modBits [op] ++
+                                     regBits enc op ++ -- TODO: no operand
+                                     rmBits op)]
 encodeModRm enc [op1, op2]
     | registerAdd enc = []
     | otherwise       = [bitsToByte (modBits [op1, op2] ++
-                                     regBits op2 ++
+                                     regBits enc op2 ++
                                      rmBits op1)]
 encodeModRm _ _       = []
 
@@ -230,6 +264,7 @@ encodeSib [Address base scale   index      _, _] =
                  registerIndex index ++
                  registerIndex base)]
 encodeSib [_, _]                                 = []
+encodeSib [_]                                    = []
 encodeSib []                                     = []
 
 
@@ -246,6 +281,9 @@ encodeDisplacement _                                           = []
 encodeImmediate :: [Operand] -> [Word8]
 encodeImmediate [_, Immediate (Literal imm  )] = imm
 encodeImmediate [_, Immediate (Symbol  s   _)] = replicate (sizeInt s) 0
+encodeImmediate [Relative (Literal imm  )]     = imm
+-- TODO: remove when encodedLength is fixed
+encodeImmediate [Relative (Symbol  s   _)]     = replicate (sizeInt s) 0
 encodeImmediate _                              = []
 
 
@@ -285,6 +323,8 @@ immBytes :: Pattern -> [Int]
 immBytes P_imm8      = [1]
 immBytes P_imm1632   = [2, 4]
 immBytes P_imm163264 = [2, 4, 8]
+immBytes P_rel8      = [1]
+immBytes P_rel1632   = [2, 4]
 immBytes _           = []
 
 
@@ -307,8 +347,10 @@ matchPattern (Address _ _ _ _) P_rm8      = True
 matchPattern (Address _ _ _ _) P_rm163264 = True
 
 matchPattern (Immediate (Literal l)) p    = elem (length l) (immBytes p)
-
 matchPattern (Immediate (Symbol s _)) p   = elem (sizeInt s) (immBytes p)
+
+matchPattern (Relative  (Literal l)) p    = elem (length l) (immBytes p)
+matchPattern (Relative  (Symbol s _)) p   = elem (sizeInt s) (immBytes p)
 
 matchPattern _ _                          = False
 
@@ -330,7 +372,10 @@ candidates inst = do
     let match enc = case matchEncoding inst enc of True  -> [enc]
                                                    False -> []
 
-    concat (map match encodings)
+    let codeEncodings = concat (map match encodings)
+
+    let isData = elem (command inst) dataCommands
+    if isData then [dataEncoding] else codeEncodings
 
 
 -- Find a valid Encoding for the given instruction.
@@ -358,9 +403,8 @@ encodeData i = do
 
 
 -- Encode a code instruction into bytes (the command can't be in dataCommands).
-encodeCode :: Instruction -> Encoded
-encodeCode i = do
-    let enc = chooseEncoding i
+encodeCode :: Instruction -> Encoding -> Encoded
+encodeCode i enc = do
     let pref0f = if prefix0f enc then [0x0f] else []
     let primaryOp = resolveOpCode enc i
     let op = pref0f ++ [primaryOp]
@@ -376,7 +420,9 @@ encodeCode i = do
         sizePrefix   = encodeSizePrefix enc size,
         rex          = encodeRex enc size ordered,
         op           = op,
-        modrm        = encodeModRm enc ordered,
+        modrm        = if (elem (mnemonic enc) jumpCommands) -- TODO: ew
+                           then []
+                           else encodeModRm enc ordered,
         sib          = encodeSib ordered,
         displacement = encodeDisplacement ordered,
         immediate    = encodeImmediate ordered
@@ -384,10 +430,10 @@ encodeCode i = do
 
 
 -- Encode an instruction into bytes.
-encodeInstruction :: Instruction -> Encoded
-encodeInstruction i
-    | elem (command i) dataCommands = encodeData i
-    | otherwise                     = encodeCode i
+encodeInstruction :: Instruction -> Encoding -> Encoded
+encodeInstruction i enc
+    | elem (mnemonic enc) dataCommands = encodeData i
+    | otherwise                        = encodeCode i enc
 
 
 -- Get the total number of encoded bytes for an instruction.
@@ -459,27 +505,75 @@ allSymbolOffsets ((inst, enc):xs) offset = do
     current ++ inner
 
 
--- Extract all label offsets from a list of encoded instructions.
-allLabelOffsets :: [(Instruction, Encoded)] -> Int -> [Label]
+-- Extract all label offsets from a list of instructions and their encodings.
+allLabelOffsets :: [(Instruction, Encoding)] -> Int -> [Label]
 allLabelOffsets [] _ = []
 allLabelOffsets ((inst, enc):xs) offsetCurrent = do
-    let inner = allLabelOffsets xs (offsetCurrent + (encodedLength enc))
+    let inner = allLabelOffsets xs (offsetCurrent + (encodingLength inst enc))
     let make l = Label { label = l, labelOffset = offsetCurrent }
     let current = map make (labelNames inst)
     current ++ inner
 
 
+-- Figure out how many bytes an instruction will be encoded as.
+-- TODO: Actually calculate this instead of just encoding it and checking.
+encodingLength :: Instruction -> Encoding -> Int
+encodingLength inst enc = encodedLength (encodeInstruction inst enc)
+
+
+-- TODO: maybe? or will some earlier validator step catch these?
+findLabel :: [Label] -> String -> Label
+findLabel labels search = fromJust (find (\l -> label l == search) labels)
+
+
+relativeOffset :: Instruction -> Int -> [Label] -> Instruction
+relativeOffset inst@Instruction { operands=[Relative (Symbol size str)] }
+               offset labels = do
+    let target = labelOffset (findLabel labels str)
+    let delta = trace ("\n\nAA: " ++ show target ++ ", " ++ show offset ++ "\n\n") (fromIntegral (target - offset) :: Int32)
+
+    inst {
+        operands = [Relative (Literal (toBytes delta))]
+    }
+relativeOffset inst _ _ = inst
+
+
+-- Calculate relative offsets for jumps/calls.
+relativeOffsets :: [(Instruction, Encoding)] -> [Label] -> Int ->
+                   [(Instruction, Encoding)]
+relativeOffsets [] _ _ = []
+relativeOffsets ((inst, enc):rest) labels offset = do
+    -- Offset of next instruction (RIP value)
+    let rip = offset + encodingLength inst enc
+
+    let newInst = relativeOffset inst rip labels
+
+    let inner = relativeOffsets rest labels rip
+    [(newInst, enc)] ++ inner
+
+
 -- Encode a section.
 encodeSection :: CodeSection -> EncodedSection
 encodeSection sec = do
-    let encodeOne i = (i, encodeInstruction i)
-    let encoded = map encodeOne (instructions sec)
+    -- [Instruction] -> [(Instruction, Encoding)]
+    let chooseOne i = (i, chooseEncoding i)
+    let instEncodings = map chooseOne (instructions sec)
 
-    let bytes (_, e) = encodedBytes e
+    let labels = allLabelOffsets instEncodings 0
+
+    let instEncodings2 = relativeOffsets instEncodings labels 0
+
+    -- [(Instruction, Encoding)] -> [(Instruction, Encoded)]
+    let encodeOne (i, e) = (i, encodeInstruction i e)
+    let encoded = map encodeOne instEncodings2
+
+    -- [(Instruction, Encoded)] -> [Word8]
+    let extractBytes (_, e) = encodedBytes e
+    let bytes = concat (map extractBytes encoded)
 
     EncodedSection {
         section = sec,
-        bytes   = concat (map bytes encoded),
+        bytes   = bytes,
         symbols = allSymbolOffsets encoded 0,
-        labels  = allLabelOffsets encoded 0
+        labels  = labels
     }
