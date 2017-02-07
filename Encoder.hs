@@ -328,6 +328,12 @@ immBytes P_rel1632   = [2, 4]
 immBytes _           = []
 
 
+-- Check if a number of bytes is small enough to fit in any variations of an
+-- immediate pattern.
+immFit :: Int -> Pattern -> Bool
+immFit size pattern = any (>= size) (immBytes pattern)
+
+
 -- Check if a register is 8-bit.
 is8 :: Registers -> Bool
 is8 r = elem r registers8
@@ -346,11 +352,11 @@ matchPattern (Register r) P_rm163264      = not (elem r registers8)
 matchPattern (Address _ _ _ _) P_rm8      = True
 matchPattern (Address _ _ _ _) P_rm163264 = True
 
-matchPattern (Immediate (Literal l)) p    = elem (length l) (immBytes p)
-matchPattern (Immediate (Symbol s _)) p   = elem (sizeInt s) (immBytes p)
+matchPattern (Immediate (Literal l)) p    = immFit (length l) p
+matchPattern (Immediate (Symbol s _)) p   = immFit (sizeInt s) p
 
-matchPattern (Relative  (Literal l)) p    = elem (length l) (immBytes p)
-matchPattern (Relative  (Symbol s _)) p   = elem (sizeInt s) (immBytes p)
+matchPattern (Relative  (Literal l)) p    = immFit (length l) p
+matchPattern (Relative  (Symbol s _)) p   = immFit (sizeInt s) p
 
 matchPattern _ _                          = False
 
@@ -402,13 +408,28 @@ encodeData i = do
     }
 
 
+-- Literals are parsed as the smallest number of bytes which can contain the
+-- value. During encoding they need to be padded with zero bytes to the size
+-- of the register involved, with a ceiling of the max size of the pattern the
+-- literal operand matched with.
+padLiterals :: [(Operand, Pattern)] -> [Operand]
+padLiterals [(Register r, _), (Immediate (Literal b), p)] = do
+    let regSize = sizeInt (registerSize r)
+    let maxPatternSize = maximum (immBytes p)
+    let target = minimum [regSize, maxPatternSize]
+    let bytes = b ++ replicate (target - length b) 0x00
+    [Register r, Immediate (Literal bytes)]
+padLiterals o = map fst o
+
+
 -- Encode a code instruction into bytes (the command can't be in dataCommands).
 encodeCode :: Instruction -> Encoding -> Encoded
 encodeCode i enc = do
     let pref0f = if prefix0f enc then [0x0f] else []
     let primaryOp = resolveOpCode enc i
     let op = pref0f ++ [primaryOp]
-    let ordered = encodedOrder enc (operands i)
+    let padded = padLiterals (zip (operands i) (patterns enc))
+    let ordered = encodedOrder enc padded
 
     let size = case opSize (sizeHint i) ordered of
               Success   s -> s

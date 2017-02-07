@@ -196,23 +196,6 @@ parseOperands l cmd p = do
     foldl concatTuple ([], []) (map (parseOperand l cmd) p)
 
 
--- Add 0-value padding bytes to the end of a bytestring until it reaches the
--- number of bytes indicated by the Size.
-padBytes :: Size -> [Word8] -> [Word8]
-padBytes size bytes = bytes ++ replicate (sizeInt size - length bytes) 0x00
-
-
--- Pad immediate literals to their appropriate sizes. This has to be done as a
--- separate pass to operand parsing because of situations where the number of
--- immediate bytes is only made unambiguous from analysis of the other
--- operands. Example: in 'mov rax, 7' you don't know that 7 needs to be a
--- qword until you know it's being moved into a 64-bit register (rax).
-padLiterals :: [Operand] -> [Operand]
-padLiterals [Register r, Immediate (Literal l)] = do
-    [Register r, Immediate (Literal (padBytes (registerSize r) l))]
-padLiterals opers = opers
-
-
 -- Parse an instruction if possible.
 parseLine :: Line -> (Maybe Instruction, [Error])
 parseLine line = do
@@ -230,14 +213,12 @@ parseLine line = do
     let operandParts = map (map parsePart) operandTokens
     let (operands, operandErr) = parseOperands line command operandParts
 
-    let operands2 = padLiterals operands
-
     let inst = Instruction {
         source     = code line,
         labelNames = labels line,
         sizeHint   = size,
         command    = command,
-        operands   = operands2
+        operands   = operands
     }
 
     let err = commandErr ++ sizeErr ++ operandErr
