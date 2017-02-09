@@ -170,7 +170,8 @@ stepTokenizer state = do
 
     let endOfInput = (next state) == Nothing
 
-    let ret = if endOfLine || endOfInput then [newLine] else []
+    let produceNewLine = (not newInComment) && (endOfLine || endOfInput)
+    let ret = if produceNewLine then [newLine] else []
     if endOfInput then ret else ret ++ recur
 
 

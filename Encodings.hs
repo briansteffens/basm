@@ -168,6 +168,62 @@ encodings = [
         mnemonic     = SYSCALL,
         prefix0f     = True,
         primary      = 0x05
+    },
+
+----XOR encodings--------------------------------------------------------------
+
+    enc {
+        mnemonic     = XOR,
+        patterns     = [P_rm8, P_r8],
+        primary      = 0x30
+    },
+    enc {
+        mnemonic     = XOR,
+        patterns     = [P_rm163264, P_r163264],
+        primary      = 0x31,
+        default32    = True
+    },
+    enc {
+        mnemonic     = XOR,
+        patterns     = [P_r8, P_rm8],
+        primary      = 0x32,
+        reverseOpers = True
+    },
+    enc {
+        mnemonic     = XOR,
+        patterns     = [P_r163264, P_rm163264],
+        primary      = 0x33,
+        reverseOpers = True,
+        default32    = True
+    },
+    enc {
+        mnemonic     = XOR,
+        patterns     = [R AL, P_imm8],
+        primary      = 0x34
+    },
+    enc {
+        mnemonic     = XOR,
+        patterns     = [R RAX, P_imm1632],
+        primary      = 0x35
+    },
+    enc {
+        mnemonic     = XOR,
+        patterns     = [P_rm8, P_imm8],
+        primary      = 0x80,
+        opExtension  = Just 6
+    },
+    enc {
+        mnemonic     = XOR,
+        patterns     = [P_rm163264, P_imm1632],
+        primary      = 0x81,
+        opExtension  = Just 6,
+        default32    = True
+    },
+    enc {
+        mnemonic     = XOR,
+        patterns     = [P_rm163264, P_imm8],
+        primary      = 0x83,
+        opExtension  = Just 6
     }
     ]
 
