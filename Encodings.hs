@@ -28,6 +28,9 @@ dataEncoding = enc {
 
 
 encodings = [
+
+----ADD encodings--------------------------------------------------------------
+
     enc {
         mnemonic     = ADD,
         patterns     = [P_r8, P_rm8],
@@ -41,6 +44,9 @@ encodings = [
         reverseOpers = True,
         default32    = True
     },
+
+----CMP encodings--------------------------------------------------------------
+
     enc {
         mnemonic     = CMP,
         patterns     = [P_rm8, P_r8],
@@ -94,6 +100,9 @@ encodings = [
         primary      = 0x83,
         opExtension  = Just 7
     },
+
+----DEC encodings--------------------------------------------------------------
+
     enc {
         mnemonic     = DEC,
         patterns     = [P_rm8],
@@ -107,6 +116,39 @@ encodings = [
         default32    = True,
         opExtension  = Just 1
     },
+
+----INC encodings--------------------------------------------------------------
+
+    enc {
+        mnemonic     = INC,
+        patterns     = [P_rm8],
+        primary      = 0xFE,
+        opExtension  = Just 0
+    },
+    enc {
+        mnemonic     = INC,
+        patterns     = [P_rm163264],
+        primary      = 0xFF,
+        default32    = True,
+        opExtension  = Just 0
+    },
+
+----JE encodings---------------------------------------------------------------
+
+    enc {
+        mnemonic     = JE,
+        patterns     = [P_rel8],
+        primary      = 0x74
+    },
+    enc {
+        mnemonic     = JE,
+        patterns     = [P_rel1632],
+        prefix0f     = True,
+        primary      = 0x84
+    },
+
+----JG encodings---------------------------------------------------------------
+
     enc {
         mnemonic     = JG,
         patterns     = [P_rel8],
@@ -118,6 +160,22 @@ encodings = [
         prefix0f     = True,
         primary      = 0x8F
     },
+
+----JMP encodings--------------------------------------------------------------
+
+    enc {
+        mnemonic     = JMP,
+        patterns     = [P_rel8],
+        primary      = 0xEB
+    },
+    enc {
+        mnemonic     = JMP,
+        patterns     = [P_rel1632],
+        primary      = 0xE9
+    },
+
+----MOV encodings--------------------------------------------------------------
+
     enc {
         mnemonic     = MOV,
         patterns     = [P_rm8, P_r8],
@@ -164,6 +222,9 @@ encodings = [
         primary      = 0xC7,
         default32    = True
     },
+
+----SYSCALL encodings----------------------------------------------------------
+
     enc {
         mnemonic     = SYSCALL,
         prefix0f     = True,
@@ -226,26 +287,3 @@ encodings = [
         opExtension  = Just 6
     }
     ]
-
-
---main :: IO ()
---main = do
---    let inst = Instruction {
---        source = "mov bl, cl",
---        labelNames = [],
---        command = MOV,
---        sizeHint = NoSize,
---        operands = [
---            Register BL,
---            Register CL
---        ]
---    }
---
---    let c = candidates inst
---
---    putStrLn (intercalate "\n" (map showEncoding c))
---
---
---showEncoding :: Encoding -> String
---showEncoding enc =
---    show (mnemonic enc) ++ "\t" ++ intercalate "\t" (map show (patterns enc))

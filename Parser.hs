@@ -131,13 +131,26 @@ parsePart (Unquoted    t) = do
 
 -- Parse an operand from a list of tokens.
 parseOperand :: Line -> Command -> [OperandPart] -> ([Operand], [Error])
-parseOperand l _   []               = ([], [])
-parseOperand l _   [RegisterPart r] = ([Register r], [])
-parseOperand l _   [NumericPart  n] = ([Immediate (Literal
-                                        (takeWhile (/= 0) (toBytes n)))], [])
-parseOperand l cmd [SymbolPart   s]
+parseOperand _ _   []               = ([], [])
+parseOperand _ _   [RegisterPart r] = ([Register r], [])
+
+parseOperand _ _   [NumericPart  n] = do
+    let bytes = takeWhile (/= 0) (toBytes n)
+    let lit = if null bytes then [0x00] else bytes
+    ([Immediate (Literal lit)], [])
+
+parseOperand _ cmd [SymbolPart   s]
     | elem cmd jumpCommands         = ([Relative  (Symbol DWORD s)], [])
     | otherwise                     = ([Immediate (Symbol QWORD s)], [])
+
+-- [rax]
+parseOperand _ _ [ControlPart '[', RegisterPart b, ControlPart ']'] =
+    ([Address b NoScale NoRegister NoDisplacement], [])
+
+-- [rax+rbx]
+parseOperand _ _ [ControlPart '[', RegisterPart b, ControlPart '+',
+                  RegisterPart i, ControlPart ']'] =
+    ([Address b NoScale i NoDisplacement], [])
 
 
 -- Concatenate the members of a tuple of lists.
@@ -164,7 +177,7 @@ extractSizes (Unquoted cur:rest) = do
     let token = if null size then [Unquoted cur] else []
 
     concatTuple (size, token) (extractSizes rest)
-extractSizes (cur:rest) = extractSizes rest
+extractSizes (cur:rest) = concatTuple ([], [cur]) (extractSizes rest)
 
 
 -- If an instruction contained size hints, make sure they all match.
@@ -209,7 +222,7 @@ parseLine line = do
     let (sizes, toks) = extractSizes (tail (tokens line))
     let (size, sizeErr) = resolveSize line sizes
 
-    let operandTokens = splitOperands (tail (tokens line))
+    let operandTokens = splitOperands toks
     let operandParts = map (map parsePart) operandTokens
     let (operands, operandErr) = parseOperands line command operandParts
 
@@ -294,3 +307,11 @@ showToken :: Token -> String
 showToken (Unquoted    s) = s
 showToken (Quoted      s) = s
 showToken (ControlChar c) = [c]
+
+
+showOperandPart :: OperandPart -> String
+showOperandPart (RegisterPart r) = "RegisterPart " ++ show r
+showOperandPart (NumericPart  n) = "NumericPart " ++ show n
+showOperandPart (SymbolPart   s) = "SymbolPart " ++ s
+showOperandPart (ControlPart  c) = "ControlPart " ++ [c]
+showOperandPart (QuotedPart   q) = "QuotedPart \"" ++ q ++ "\""

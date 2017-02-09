@@ -10,7 +10,10 @@ data Command = ADC
              | AND
              | CMP
              | DEC
+             | INC
+             | JE
              | JG
+             | JMP
              | MOV
              | OR
              | SBB
@@ -30,7 +33,7 @@ dataCommands = [DB, DW, DD, DQ]
 
 
 -- Jump/call commands whose operands reference RIP-relative addresses
-jumpCommands = [JG]
+jumpCommands = [JE, JG, JMP]
 
 
 data Size = BYTE
@@ -125,9 +128,9 @@ showDisplacement (DisplacementSymbol size str) = "DisplacementSymbol " ++
 
 showOperand :: Operand -> String
 showOperand (Register r) = show r
-showOperand (Address b s i d) = show b ++ " + " ++ show s ++ " * " ++ show i ++
-                                " + " ++ showDisplacement d ++ "]"
-showOperand (Immediate (Literal b)) = intercalate " " (map show b)
+showOperand (Address b s i d) = "[" ++ show b ++ " + " ++ show s ++ " * " ++
+                                show i ++ " + " ++ showDisplacement d ++ "]"
+showOperand (Immediate (Literal b)) = "LIT " ++ intercalate " " (map show b)
 showOperand (Immediate (Symbol size str)) = "SYM " ++ show size ++ " " ++ str
 showOperand (Relative (Literal b)) = "REL " ++ intercalate " " (map show b)
 showOperand (Relative (Symbol size str)) = "RELSYM " ++ show size ++ " " ++ str
