@@ -547,11 +547,12 @@ findLabel :: [Label] -> String -> Label
 findLabel labels search = fromJust (find (\l -> label l == search) labels)
 
 
+-- Replace a relative symbol with a relative offset (hooks up a jump).
 relativeOffset :: Instruction -> Int -> [Label] -> Instruction
 relativeOffset inst@Instruction { operands=[Relative (Symbol size str)] }
                offset labels = do
     let target = labelOffset (findLabel labels str)
-    let delta = trace ("\n\nAA: " ++ show target ++ ", " ++ show offset ++ "\n\n") (fromIntegral (target - offset) :: Int32)
+    let delta = fromIntegral (target - offset) :: Int32
 
     inst {
         operands = [Relative (Literal (toBytes delta))]

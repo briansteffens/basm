@@ -19,8 +19,9 @@ data Token = Unquoted    String -- The default: a mnemonic, operand, etc.
 
 -- Get the string value from a token.
 tokenString :: Token -> String
-tokenString (Unquoted s) = s
-tokenString (Quoted   s) = s
+tokenString (Unquoted    s) = s
+tokenString (Quoted      s) = s
+tokenString (ControlChar c) = [c]
 
 
 -- This represents one tokenized line from the source code.
@@ -60,9 +61,9 @@ resolveEscapeChar '"'  = '"'
 
 -- Get the second character from a string if it has enough characters.
 secondChar :: String -> Maybe Char
-secondChar []     = Nothing
-secondChar [_]    = Nothing
-secondChar (_:xs) = Just (head xs)
+secondChar []       = Nothing
+secondChar (_:[])   = Nothing
+secondChar (_:x:xs) = Just x
 
 
 -- Internal structure for stepTokenizer. An instance of this record describes
