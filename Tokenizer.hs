@@ -136,8 +136,10 @@ stepTokenizer state = do
     let controlToken = if isControlChar cur then [ControlChar cur] else []
 
     let isNewThing = endOfToken && not (null newBuffer)
-    let isNewToken = isNewThing && not isColon
-    let isNewLabel = isNewThing && isColon
+
+    -- Labels can only come at the beginning of the line (before any tokens).
+    let isNewLabel = isNewThing && isColon && null (tokens curLine)
+    let isNewToken = isNewThing && not isNewLabel
 
     -- Updated line
     let newLine = curLine {

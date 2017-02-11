@@ -63,19 +63,6 @@ renderSymbolVisibility :: SymbolVisibility -> Word8
 renderSymbolVisibility STV_DEFAULT = 0
 
 
--- Symbol table entry type (part of st_info)
-data SymbolType = STT_NOTYPE
-                | STT_SECTION
-                | STT_FILE
-                deriving Show
-
-
-renderSymbolType :: SymbolType -> Word8
-renderSymbolType STT_NOTYPE  = 0
-renderSymbolType STT_SECTION = 3
-renderSymbolType STT_FILE    = 4
-
-
 -- Symbol table entry binding field (part of st_info)
 data SymbolBinding = STB_LOCAL
                    | STB_GLOBAL
@@ -96,7 +83,7 @@ data SymbolRelation = RelationUndefined
 -- An entry in the symtab
 data Symbol = Symbol {
     symbolName :: String,
-    symbolType :: SymbolType,
+    symbolType :: D.SymbolType,
     binding    :: SymbolBinding,
     visibility :: SymbolVisibility,
     relation   :: SymbolRelation,
@@ -228,14 +215,19 @@ sectionSymbolIndex symbols sectionName = do
         Just i  -> i
 
 
+-- Check if a directive is a global with the given name.
+matchGlobalDirective :: String -> D.Directive -> Bool
+matchGlobalDirective search (D.Global _ name) = name == search
+
+
 -- Generate a symtab including a null symbol, filename symbol, symbols for
 -- each PROGBITS section, and symbols for each label
-generateSymTab :: [E.EncodedSection] -> String -> Section
-generateSymTab sections filename = do
+generateSymTab :: [E.EncodedSection] -> String -> [D.Directive] -> Section
+generateSymTab sections filename directives = do
     -- The null symbol at index 0 in every file's symtab
     let nullSymbol = Symbol {
         symbolName = "",
-        symbolType = STT_NOTYPE,
+        symbolType = D.STT_NOTYPE,
         binding    = STB_LOCAL,
         visibility = STV_DEFAULT,
         relation   = RelationUndefined,
@@ -246,7 +238,7 @@ generateSymTab sections filename = do
     -- This symbol represents the object file itself
     let fileSymbol = Symbol {
         symbolName = filename,
-        symbolType = STT_FILE,
+        symbolType = D.STT_FILE,
         binding    = STB_LOCAL,
         visibility = STV_DEFAULT,
         relation   = RelationAbsolute,
@@ -257,7 +249,7 @@ generateSymTab sections filename = do
     -- Each PROGBITS section should have a symbol for it
     let sectionSymbol sec = Symbol {
         symbolName = "",
-        symbolType = STT_SECTION,
+        symbolType = D.STT_SECTION,
         binding    = STB_LOCAL,
         visibility = STV_DEFAULT,
         relation   = RelatedSection (D.sectionName (E.section sec)),
@@ -269,15 +261,28 @@ generateSymTab sections filename = do
 
     -- Each label across all PROGBITS sections should have a symbol for it
     let labelSection sec = do
-        let labelSymbol label = Symbol {
-            symbolName = E.label label,
-            symbolType = STT_NOTYPE,
-            binding    = STB_LOCAL,   -- TODO: globals
-            visibility = STV_DEFAULT,
-            relation   = RelatedSection (D.sectionName (E.section sec)),
-            value      = toBytes (E.labelOffset label),
-            size       = 0
-        }
+
+        let labelSymbol label = do
+            let directive = find (matchGlobalDirective (E.label label))
+                                 directives
+
+            let symType = case directive of
+                              Just (D.Global t _) -> t
+                              otherwise           -> D.STT_NOTYPE
+
+            let symBinding = case directive of
+                                 Just _    -> STB_GLOBAL
+                                 otherwise -> STB_LOCAL
+
+            Symbol {
+                symbolName = E.label label,
+                symbolType = symType,
+                binding    = symBinding,
+                visibility = STV_DEFAULT,
+                relation   = RelatedSection (D.sectionName (E.section sec)),
+                value      = toBytes (E.labelOffset label),
+                size       = 0
+            }
 
         map labelSymbol (E.labels sec)
 
@@ -476,8 +481,15 @@ renderSectionHeader sh = toBytes (sh_name sh) ++
                          toBytes (sh_entsize sh)
 
 
+renderSymbolType :: D.SymbolType -> Word8
+renderSymbolType D.STT_NOTYPE  = 0
+renderSymbolType D.STT_FUNC    = 2
+renderSymbolType D.STT_SECTION = 3
+renderSymbolType D.STT_FILE    = 4
+
+
 -- Combine symbol binding and type into the sh_info field
-renderSymTabInfo :: SymbolBinding -> SymbolType -> Word8
+renderSymTabInfo :: SymbolBinding -> D.SymbolType -> Word8
 renderSymTabInfo b t = (shiftL (renderSymbolBinding b) 4) +
                        (renderSymbolType t)
 
@@ -529,8 +541,8 @@ combineContents ((sh, bytes):remaining) offset = do
 
 
 -- Encode and assemble an ELF file.
-assemble :: [D.CodeSection] -> (B.ByteString, String)
-assemble codeSections = do
+assemble :: [D.CodeSection] -> [D.Directive] -> (B.ByteString, String)
+assemble codeSections directives = do
     -- Encode instructions
     let progBitsEncoded = map E.encodeSection codeSections
 
@@ -556,7 +568,7 @@ assemble codeSections = do
 
 
     -- Generate symtab
-    let symTab = generateSymTab progBitsEncoded filename
+    let symTab = generateSymTab progBitsEncoded filename directives
     let symbols = case contents symTab of
                  SymTabContents c -> c
                  _                -> error("Not a symtab")

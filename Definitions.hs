@@ -180,6 +180,14 @@ data Encoding = Encoding {
 }
 
 
+-- Symbol table entry type (part of st_info)
+data SymbolType = STT_NOTYPE
+                | STT_SECTION
+                | STT_FILE
+                | STT_FUNC
+                deriving (Eq, Show)
+
+
 -- Get the size/width of a register
 registerSize :: Registers -> Size
 registerSize r
@@ -187,6 +195,10 @@ registerSize r
     | elem r registers16 = WORD
     | elem r registers64 = QWORD
     | otherwise          = DWORD
+
+
+data Directive = Global SymbolType String
+               deriving Eq
 
 
 showInstruction :: Instruction -> String

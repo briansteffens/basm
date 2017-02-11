@@ -4,6 +4,9 @@ section .data
 
 section .text
 
+global loop_start
+global _start:function
+global loop_end:function, message:data
 _start:
     mov rdi, message
     xor rax, rax

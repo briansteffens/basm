@@ -17,12 +17,13 @@ main = do
 
     contents <- readFile filename
 
-    let (sections, errors) = P.parse contents
+    let (sections, directives, errors, parseDebug) = P.parse contents
 
+    putStrLn parseDebug
     putStrLn ("\n" ++ (intercalate "\n\n" (map P.showCodeSection sections)))
     putStrLn ("\nerrors:\n" ++ (intercalate "\n" (map P.showError errors)))
 
-    let (bytes, debug) = E.assemble sections
+    let (bytes, debug) = E.assemble sections directives
 
     putStrLn debug
     B.writeFile "basm.o" bytes

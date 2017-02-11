@@ -153,9 +153,14 @@ parseOperand _ _ [ControlPart '[', RegisterPart b, ControlPart '+',
     ([Address b NoScale i NoDisplacement], [])
 
 
--- Concatenate the members of a tuple of lists.
+-- Concatenate the members of a 2-tuple of lists.
 concatTuple :: ([a], [b]) -> ([a], [b]) -> ([a], [b])
 concatTuple l r = (fst l ++ fst r, snd l ++ snd r)
+
+
+-- Concatenate the members of a 3-tuple of lists.
+concatTuple3 :: ([a], [b], [c]) -> ([a], [b], [c]) -> ([a], [b], [c])
+concatTuple3 (la, lb, lc) (ra, rb, rc) = (la ++ ra, lb ++ rb, lc ++ rc)
 
 
 parseSize :: String -> Maybe Size
@@ -251,19 +256,55 @@ parseSection sec = do
     (ret, err)
 
 
+readSymbolType :: String -> SymbolType
+readSymbolType st
+    | s == "FUNCTION" = STT_FUNC
+    | otherwise       = STT_NOTYPE
+    where s = map toUpper st
+
+
+parseGlobalOperand :: [Token] -> Directive
+parseGlobalOperand [Unquoted n]             = trace ("\n\n\nNOTYPE " ++ n ++ "\n\n\n") (Global STT_NOTYPE n)
+parseGlobalOperand [Unquoted n, Unquoted t] = trace ("\n\n\nGLOBAL " ++ n ++ ", " ++ t ++ "\n\n\n") (Global (readSymbolType t) (init n))
+
+
+parseDirective :: Line -> ([Directive], [Error])
+parseDirective Line { tokens=(Unquoted "global":params) } = do
+    let parts = splitOperands params
+    (map parseGlobalOperand parts, [])
+parseDirective _ = ([], [])
+
+
+extractDirectives :: [Line] -> ([Directive], [Line], [Error])
+extractDirectives [] = ([], [], [])
+extractDirectives (line:rest) = do
+    let (directives, errors) = parseDirective line
+    let success = null errors && not (null directives)
+
+    let lines = if success then []
+                           else [line]
+
+    let recur = extractDirectives rest
+    concatTuple3 (directives, lines, errors) recur
+
+
 -- Convert code into an AST.
-parse :: String -> ([CodeSection], [Error])
+parse :: String -> ([CodeSection], [Directive], [Error], String)
 parse src = do
     let toks = tokenize src
 
-    let (sections, errors) = divideSections toks
+    let debug = "Tokens: " ++ intercalate "\n" (map showLine toks)
+
+    let (directives, linesLeft, directiveErrors) = extractDirectives toks
+
+    let (sections, divideErrors) = divideSections linesLeft
 
     let parsed = map parseSection sections
 
-    let ret = map fst parsed
-    let err = errors ++ concat (map snd parsed)
+    let codeSections = map fst parsed
+    let err = directiveErrors ++ divideErrors ++ concat (map snd parsed)
 
-    (ret, err)
+    (codeSections, directives, err, debug)
 
 
 -- Concatenate the members of a tuple of lists.
@@ -298,7 +339,7 @@ showLine :: Line -> String
 showLine l = do
     let lbls = labels l
 
-    "[" ++ show (lineNumber l) ++ "] " ++ code l ++ "\n  " ++
+    "[" ++ show (lineNumber l) ++ "] " ++ code l ++ "  " ++
         (if null lbls then "" else (intercalate "," lbls ++ ":\n  ")) ++ "|" ++
         intercalate "| |" (map showToken (tokens l)) ++ "|"
 
