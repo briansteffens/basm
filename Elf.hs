@@ -65,13 +65,15 @@ renderSymbolVisibility STV_DEFAULT = 0
 
 -- Symbol table entry binding field (part of st_info)
 data SymbolBinding = STB_LOCAL
+                   | STB_WEAK
                    | STB_GLOBAL
-                   deriving Show
+                   deriving (Show, Eq, Ord)
 
 
 renderSymbolBinding :: SymbolBinding -> Word8
 renderSymbolBinding STB_LOCAL  = 0
 renderSymbolBinding STB_GLOBAL = 1
+renderSymbolBinding STB_WEAK   = 2
 
 
 -- Defines what section (if any) the symbol refers to (st_shndx)
@@ -286,13 +288,14 @@ generateSymTab sections filename directives = do
 
         map labelSymbol (E.labels sec)
 
-    let labelSymbols = concat (map labelSection sections)
+    let labels = concat (map labelSection sections)
+    let labelsSorted = sortBy (\l r -> compare (binding l) (binding r)) labels
 
     Section {
         sectionName = ".symtab",
         contents    = SymTabContents ([nullSymbol, fileSymbol] ++
                                       sectionSymbols ++
-                                      labelSymbols)
+                                      labelsSorted)
     }
 
 
@@ -401,7 +404,7 @@ sh all sec (ProgBitsContents enc) offset = SectionHeader {
     sh_size      = fromIntegral (length (E.bytes enc)) :: Word64,
     sh_link      = 0,
     sh_info      = 0,
-    sh_addralign = 16, -- TODO: fix alignment for different sections?
+    sh_addralign = if (sectionName sec) == ".data" then 4 else 16,
     sh_entsize   = 0
 }
 
@@ -426,7 +429,7 @@ sh all sec (SymTabContents symbols) offset = SectionHeader {
     sh_offset    = offset,
     sh_size      = fromIntegral (symbolEntSize * (length symbols)) :: Word64,
     sh_link      = fromIntegral (sectionIndex ".strtab" all) :: Word32,
-    sh_info      = fromIntegral (length symbols) :: Word32,
+    sh_info      = fromIntegral (length symbols - 1) :: Word32,
     sh_addralign = 8,
     sh_entsize   = fromIntegral symbolEntSize :: Word64
 }
