@@ -429,7 +429,8 @@ sh all sec (SymTabContents symbols) offset = SectionHeader {
     sh_offset    = offset,
     sh_size      = fromIntegral (symbolEntSize * (length symbols)) :: Word64,
     sh_link      = fromIntegral (sectionIndex ".strtab" all) :: Word32,
-    sh_info      = fromIntegral (length symbols - 1) :: Word32,
+    sh_info      = fromIntegral (length (fst (break
+                       (\s -> binding s == STB_GLOBAL) symbols))) :: Word32,
     sh_addralign = 8,
     sh_entsize   = fromIntegral symbolEntSize :: Word64
 }
