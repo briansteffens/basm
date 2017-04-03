@@ -40,7 +40,7 @@ isComment c = elem c [';', '#']
 
 -- Characters that delimit tokens but are also tokens themselves.
 isControlChar :: Char -> Bool
-isControlChar c = elem c [',', '[', ']', '+', '*']
+isControlChar c = elem c [',', '[', ']', '+', '*', '$', '-']
 
 
 -- Characters that delimit tokens.

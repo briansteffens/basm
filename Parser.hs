@@ -106,13 +106,6 @@ splitOperands :: [Token] -> [[Token]]
 splitOperands t = split (== ControlChar ',') t
 
 
-data OperandPart = RegisterPart Registers
-                 | NumericPart  Integer
-                 | SymbolPart   String
-                 | ControlPart  Char
-                 | QuotedPart   String
-
-
 makePart :: Maybe Registers -> Maybe Integer -> String -> OperandPart
 makePart (Just r) _        _ = RegisterPart r
 makePart Nothing  (Just n) _ = NumericPart n
@@ -151,6 +144,9 @@ parseOperand _ _ [ControlPart '[', RegisterPart b, ControlPart ']'] =
 parseOperand _ _ [ControlPart '[', RegisterPart b, ControlPart '+',
                   RegisterPart i, ControlPart ']'] =
     ([Address b NoScale i NoDisplacement], [])
+
+-- Catch-all for expressions to be parsed later
+parseOperand _ _ parts = ([Expression parts], [])
 
 
 -- Concatenate the members of a 2-tuple of lists.
@@ -348,11 +344,3 @@ showToken :: Token -> String
 showToken (Unquoted    s) = s
 showToken (Quoted      s) = s
 showToken (ControlChar c) = [c]
-
-
-showOperandPart :: OperandPart -> String
-showOperandPart (RegisterPart r) = "RegisterPart " ++ show r
-showOperandPart (NumericPart  n) = "NumericPart " ++ show n
-showOperandPart (SymbolPart   s) = "SymbolPart " ++ s
-showOperandPart (ControlPart  c) = "ControlPart " ++ [c]
-showOperandPart (QuotedPart   q) = "QuotedPart \"" ++ q ++ "\""

@@ -25,6 +25,7 @@ data Command = ADC
              | DW
              | DD
              | DQ
+             | EQU
              deriving (Eq, Show, Read)
 
 
@@ -112,10 +113,27 @@ data ImmediateDescriptor = Literal [Word8]
                          | Symbol  Size    String
 
 
-data Operand = Register  Registers
-             | Address   Registers Scale Registers Displacement
-             | Immediate ImmediateDescriptor
-             | Relative  ImmediateDescriptor
+data Operand = Register   Registers
+             | Address    Registers Scale Registers Displacement
+             | Immediate  ImmediateDescriptor
+             | Relative   ImmediateDescriptor
+             | Expression [OperandPart]
+
+
+data OperandPart = RegisterPart Registers
+                 | NumericPart  Integer
+                 | SymbolPart   String
+                 | ControlPart  Char
+                 | QuotedPart   String
+                 deriving (Eq, Show)
+
+
+showOperandPart :: OperandPart -> String
+showOperandPart (RegisterPart r) = "RegisterPart " ++ show r
+showOperandPart (NumericPart  n) = "NumericPart " ++ show n
+showOperandPart (SymbolPart   s) = "SymbolPart " ++ s
+showOperandPart (ControlPart  c) = "ControlPart " ++ [c]
+showOperandPart (QuotedPart   q) = "QuotedPart \"" ++ q ++ "\""
 
 
 showDisplacement :: Displacement -> String
@@ -134,6 +152,7 @@ showOperand (Immediate (Literal b)) = "LIT " ++ intercalate " " (map show b)
 showOperand (Immediate (Symbol size str)) = "SYM " ++ show size ++ " " ++ str
 showOperand (Relative (Literal b)) = "REL " ++ intercalate " " (map show b)
 showOperand (Relative (Symbol size str)) = "RELSYM " ++ show size ++ " " ++ str
+showOperand (Expression p) = "EXP " ++ intercalate " " (map showOperandPart p)
 
 
 data Instruction = Instruction {
@@ -197,7 +216,8 @@ registerSize r
     | otherwise          = DWORD
 
 
-data Directive = Global SymbolType String
+data Directive = Global SymbolType    String
+               | Equ    [OperandPart] String
                deriving Eq
 
 
