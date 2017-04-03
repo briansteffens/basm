@@ -5,7 +5,6 @@ import Data.Char
 import Data.List
 import Data.Maybe
 import qualified Text.Read as TR
-import Debug.Trace
 
 import Shared
 import Definitions
@@ -260,8 +259,9 @@ readSymbolType st
 
 
 parseGlobalOperand :: [Token] -> Directive
-parseGlobalOperand [Unquoted n]             = trace ("\n\n\nNOTYPE " ++ n ++ "\n\n\n") (Global STT_NOTYPE n)
-parseGlobalOperand [Unquoted n, Unquoted t] = trace ("\n\n\nGLOBAL " ++ n ++ ", " ++ t ++ "\n\n\n") (Global (readSymbolType t) (init n))
+parseGlobalOperand [Unquoted n]             = Global STT_NOTYPE n
+parseGlobalOperand [Unquoted n, Unquoted t] = Global (readSymbolType t)
+                                                     (init n)
 
 
 parseDirective :: Line -> ([Directive], [Error])

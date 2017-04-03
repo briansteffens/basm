@@ -19,11 +19,14 @@ main = do
 
     let (sections, directives, errors, parseDebug) = P.parse contents
 
+    putStrLn "basm lexer ---------------------------------------------------\n"
     putStrLn parseDebug
+    putStrLn "\nbasm ast -----------------------------------------------------"
     putStrLn ("\n" ++ (intercalate "\n\n" (map P.showCodeSection sections)))
+    putStrLn "\nbasm results -------------------------------------------------"
     putStrLn ("\nerrors:\n" ++ (intercalate "\n" (map P.showError errors)))
 
     let (bytes, debug) = E.assemble sections directives
 
-    putStrLn debug
+    --putStrLn debug
     B.writeFile "basm.o" bytes
