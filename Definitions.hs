@@ -8,6 +8,7 @@ import Data.List
 data Command = ADC
              | ADD
              | AND
+             | CALL
              | CMP
              | DEC
              | INC
@@ -16,6 +17,7 @@ data Command = ADC
              | JMP
              | MOV
              | OR
+             | RET
              | SBB
              | SUB
              | SYSCALL
@@ -34,7 +36,7 @@ dataCommands = [DB, DW, DD, DQ]
 
 
 -- Jump/call commands whose operands reference RIP-relative addresses
-jumpCommands = [JE, JG, JMP]
+jumpCommands = [CALL, JE, JG, JMP]
 
 
 data Size = BYTE

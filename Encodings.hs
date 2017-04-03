@@ -45,6 +45,14 @@ encodings = [
         default32    = True
     },
 
+----CALL encodings-------------------------------------------------------------
+
+    enc {
+        mnemonic     = CALL,
+        patterns     = [P_rel1632],
+        primary      = 0xE8
+    },
+
 ----CMP encodings--------------------------------------------------------------
 
     enc {
@@ -221,6 +229,13 @@ encodings = [
         patterns     = [P_rm163264, P_imm1632],
         primary      = 0xC7,
         default32    = True
+    },
+
+----RET encodings--------------------------------------------------------------
+
+    enc {
+        mnemonic     = RET,
+        primary      = 0xC3
     },
 
 ----SYSCALL encodings----------------------------------------------------------

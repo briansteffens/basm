@@ -10,8 +10,10 @@ case "$1" in
         echo $?
         ;;
     basm)
-        cabal build
-        dist/build/basm/basm $SRC
+        #cabal build
+        #dist/build/basm/basm $SRC
+        ghc Main.hs
+        ./Main $SRC
         ld basm.o -o basm.a
         ./basm.a
         echo $?
