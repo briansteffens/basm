@@ -17,7 +17,8 @@ enc = Encoding {
     opcodeExt    = 0,
     reverseOpers = False,
     default32    = False,
-    opExtension  = Nothing
+    opExtension  = Nothing,
+    modRmByte    = True
 }
 
 
@@ -50,7 +51,8 @@ encodings = [
     enc {
         mnemonic     = CALL,
         patterns     = [P_rel1632],
-        primary      = 0xE8
+        primary      = 0xE8,
+        modRmByte    = False
     },
 
 ----CMP encodings--------------------------------------------------------------
@@ -87,7 +89,9 @@ encodings = [
     enc {
         mnemonic     = CMP,
         patterns     = [R RAX, P_imm1632],
-        primary      = 0x3D
+        primary      = 0x3D,
+        default32    = True,
+        modRmByte    = False
     },
     enc {
         mnemonic     = CMP,
@@ -146,11 +150,13 @@ encodings = [
     enc {
         mnemonic     = JE,
         patterns     = [P_rel8],
+        modRmByte    = False,
         primary      = 0x74
     },
     enc {
         mnemonic     = JE,
         patterns     = [P_rel1632],
+        modRmByte    = False,
         prefix0f     = True,
         primary      = 0x84
     },
@@ -160,11 +166,13 @@ encodings = [
     enc {
         mnemonic     = JG,
         patterns     = [P_rel8],
+        modRmByte    = False,
         primary      = 0x7F
     },
     enc {
         mnemonic     = JG,
         patterns     = [P_rel1632],
+        modRmByte    = False,
         prefix0f     = True,
         primary      = 0x8F
     },
@@ -174,11 +182,13 @@ encodings = [
     enc {
         mnemonic     = JMP,
         patterns     = [P_rel8],
+        modRmByte    = False,
         primary      = 0xEB
     },
     enc {
         mnemonic     = JMP,
         patterns     = [P_rel1632],
+        modRmByte    = False,
         primary      = 0xE9
     },
 

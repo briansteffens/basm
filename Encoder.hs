@@ -441,9 +441,7 @@ encodeCode i enc = do
         sizePrefix   = encodeSizePrefix enc size,
         rex          = encodeRex enc size ordered,
         op           = op,
-        modrm        = if (elem (mnemonic enc) jumpCommands) -- TODO: ew
-                           then []
-                           else encodeModRm enc ordered,
+        modrm        = if modRmByte enc then encodeModRm enc ordered else [],
         sib          = encodeSib ordered,
         displacement = encodeDisplacement ordered,
         immediate    = encodeImmediate ordered
