@@ -257,6 +257,15 @@ encodings = [
         primary      = 0x94
     },
 
+----SETNE encodings------------------------------------------------------------
+
+    enc {
+        mnemonic     = SETNE,
+        patterns     = [P_rm8],
+        prefix0f     = True,
+        primary      = 0x95
+    },
+
 ----SYSCALL encodings----------------------------------------------------------
 
     enc {

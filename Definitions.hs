@@ -20,6 +20,7 @@ data Command = ADC
              | RET
              | SBB
              | SETE
+             | SETNE
              | SUB
              | SYSCALL
              | XOR
