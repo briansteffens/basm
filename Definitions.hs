@@ -23,6 +23,7 @@ data Command = ADC
              | SETNE
              | SUB
              | SYSCALL
+             | TEST
              | XOR
              -- Data pseudo-commands
              | DB

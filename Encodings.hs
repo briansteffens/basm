@@ -274,6 +274,43 @@ encodings = [
         primary      = 0x05
     },
 
+----TEST encodings-------------------------------------------------------------
+
+    enc {
+        mnemonic     = TEST,
+        patterns     = [P_rm8, P_r8],
+        primary      = 0x84
+    },
+    enc {
+        mnemonic     = TEST,
+        patterns     = [P_rm163264, P_r163264],
+        primary      = 0x85,
+        default32    = True
+    },
+    enc {
+        mnemonic     = TEST,
+        patterns     = [R AL, P_imm8],
+        primary      = 0xA8
+    },
+    enc {
+        mnemonic     = TEST,
+        patterns     = [R RAX, P_imm1632],
+        primary      = 0xA9
+    },
+    enc {
+        mnemonic     = TEST,
+        patterns     = [P_rm8, P_imm8],
+        primary      = 0xF6,
+        opExtension  = Just 0   -- Just 1 is an alias for this opcode
+    },
+    enc {
+        mnemonic     = TEST,
+        patterns     = [P_rm163264, P_imm1632],
+        primary      = 0xF7,
+        opExtension  = Just 0,  -- Just 1 is an alias for this opcode
+        default32    = True
+    },
+
 ----XOR encodings--------------------------------------------------------------
 
     enc {
