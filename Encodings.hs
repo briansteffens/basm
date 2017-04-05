@@ -34,6 +34,17 @@ encodings = [
 
     enc {
         mnemonic     = ADD,
+        patterns     = [P_rm8, P_r8],
+        primary      = 0x00
+    },
+    enc {
+        mnemonic     = ADD,
+        patterns     = [P_rm163264, P_r163264],
+        primary      = 0x01,
+        default32    = True
+    },
+    enc {
+        mnemonic     = ADD,
         patterns     = [P_r8, P_rm8],
         primary      = 0x02,
         reverseOpers = True
@@ -44,6 +55,35 @@ encodings = [
         primary      = 0x03,
         reverseOpers = True,
         default32    = True
+    },
+    enc {
+        mnemonic     = ADD,
+        patterns     = [R AL, P_imm8],
+        primary      = 0x04
+    },
+    enc {
+        mnemonic     = ADD,
+        patterns     = [R RAX, P_imm1632],
+        primary      = 0x05
+    },
+    enc {
+        mnemonic     = ADD,
+        patterns     = [P_rm8, P_imm8],
+        primary      = 0x80,
+        opExtension  = Just 0
+    },
+    enc {
+        mnemonic     = ADD,
+        patterns     = [P_rm163264, P_imm1632],
+        primary      = 0x81,
+        opExtension  = Just 0,
+        default32    = True
+    },
+    enc {
+        mnemonic     = ADD,
+        patterns     = [P_rm163264, P_imm8],
+        primary      = 0x83,
+        opExtension  = Just 0
     },
 
 ----CALL encodings-------------------------------------------------------------
