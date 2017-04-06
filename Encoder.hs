@@ -290,6 +290,7 @@ encodeImmediate _                              = []
 -- Get the register from the first operand or fail.
 extractFirstOperand :: [Operand] -> Registers
 extractFirstOperand [Register r, _] = r
+extractFirstOperand [Register r   ] = r
 extractFirstOperand _               = error("Expected a register in first " ++
                                             "operand.")
 
@@ -348,9 +349,14 @@ matchPattern (Register r) P_r8            = elem r registers8
 matchPattern (Register r) P_rm8           = elem r registers8
 matchPattern (Register r) P_r163264       = not (elem r registers8)
 matchPattern (Register r) P_rm163264      = not (elem r registers8)
+matchPattern (Register r) P_r6416         = elem r registers16 ||
+                                            elem r registers64
+matchPattern (Register r) P_rm6416        = elem r registers16 ||
+                                            elem r registers64
 
 matchPattern (Address _ _ _ _) P_rm8      = True
 matchPattern (Address _ _ _ _) P_rm163264 = True
+matchPattern (Address _ _ _ _) P_rm6416   = True
 
 matchPattern (Immediate (Literal l)) p    = immFit (length l) p
 matchPattern (Immediate (Symbol s _)) p   = immFit (sizeInt s) p

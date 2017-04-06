@@ -17,6 +17,8 @@ data Command = ADC
              | JMP
              | MOV
              | OR
+             | POP
+             | PUSH
              | RET
              | SBB
              | SETE
@@ -177,7 +179,9 @@ data CodeSection = CodeSection {
 
 -- A description of the possible values of an operand, based on ref.x86asm.net
 data Pattern = P_r8            -- An 8-bit register
+             | P_r6416         -- A 16/64-bit register
              | P_rm8           -- An 8-bit register or memory address
+             | P_rm6416        -- A 16/64-bit register or memory address
              | P_r163264       -- A 16/32/64-bit register
              | P_rm163264      -- A 16/32/64-bit register or memory address
              | P_imm8          -- An 8-bit immediate

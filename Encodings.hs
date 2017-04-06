@@ -281,6 +281,48 @@ encodings = [
         default32    = True
     },
 
+----POP encodings--------------------------------------------------------------
+
+    enc {
+        mnemonic     = POP,
+        patterns     = [P_r6416],
+        primary      = 0x58,
+        registerAdd  = True,
+        modRmByte    = False
+    },
+    enc {
+        mnemonic     = POP,
+        patterns     = [P_rm6416],
+        primary      = 0x8F,
+        opExtension  = Just 0
+    },
+
+----PUSH encodings-------------------------------------------------------------
+
+    enc {
+        mnemonic     = PUSH,
+        patterns     = [P_r6416],
+        primary      = 0x50,
+        registerAdd  = True,
+        modRmByte    = False
+    },
+    enc {
+        mnemonic     = PUSH,
+        patterns     = [P_imm1632],
+        primary      = 0x68
+    },
+    enc {
+        mnemonic     = PUSH,
+        patterns     = [P_imm8],
+        primary      = 0x6A
+    },
+    enc {
+        mnemonic     = PUSH,
+        patterns     = [P_rm6416],
+        primary      = 0xFF,
+        opExtension  = Just 6
+    },
+
 ----RET encodings--------------------------------------------------------------
 
     enc {
