@@ -348,6 +348,62 @@ encodings = [
         primary      = 0x95
     },
 
+----SUB encodings--------------------------------------------------------------
+
+    enc {
+        mnemonic     = SUB,
+        patterns     = [P_rm8, P_r8],
+        primary      = 0x28
+    },
+    enc {
+        mnemonic     = SUB,
+        patterns     = [P_rm163264, P_r163264],
+        primary      = 0x29,
+        default32    = True
+    },
+    enc {
+        mnemonic     = SUB,
+        patterns     = [P_r8, P_rm8],
+        primary      = 0x2A,
+        reverseOpers = True
+    },
+    enc {
+        mnemonic     = SUB,
+        patterns     = [P_r163264, P_rm163264],
+        primary      = 0x2B,
+        reverseOpers = True,
+        default32    = True
+    },
+    enc {
+        mnemonic     = SUB,
+        patterns     = [R AL, P_imm8],
+        primary      = 0x2C
+    },
+    enc {
+        mnemonic     = SUB,
+        patterns     = [R RAX, P_imm1632],
+        primary      = 0x2D
+    },
+    enc {
+        mnemonic     = SUB,
+        patterns     = [P_rm8, P_imm8],
+        primary      = 0x80,
+        opExtension  = Just 5
+    },
+    enc {
+        mnemonic     = SUB,
+        patterns     = [P_rm163264, P_imm1632],
+        primary      = 0x81,
+        opExtension  = Just 5,
+        default32    = True
+    },
+    enc {
+        mnemonic     = SUB,
+        patterns     = [P_rm163264, P_imm8],
+        primary      = 0x83,
+        opExtension  = Just 5
+    },
+
 ----SYSCALL encodings----------------------------------------------------------
 
     enc {
