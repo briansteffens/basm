@@ -18,7 +18,8 @@ enc = Encoding {
     reverseOpers = False,
     default32    = False,
     opExtension  = Nothing,
-    modRmByte    = True
+    modRmByte    = True,
+    sizes        = []
 }
 
 
@@ -272,7 +273,8 @@ encodings = [
     enc {
         mnemonic     = MOV,
         patterns     = [P_rm8, P_imm8],
-        primary      = 0xC6
+        primary      = 0xC6,
+        sizes        = [BYTE]
     },
     enc {
         mnemonic     = MOV,

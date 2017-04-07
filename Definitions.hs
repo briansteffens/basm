@@ -205,7 +205,9 @@ data Encoding = Encoding {
     reverseOpers :: Bool,        -- Operands are reversed for encoding?
     default32    :: Bool,        -- This encoding defaults to 32-bit
     opExtension  :: Maybe Word8, -- ModR/M opcode extension (0-7)
-    modRmByte    :: Bool         -- Whether to encode the ModRM byte
+    modRmByte    :: Bool,        -- Whether to encode the ModRM byte
+    sizes        :: [Size]       -- Valid sizes for this instruction; empty
+                                 -- list means all
 }
 
 

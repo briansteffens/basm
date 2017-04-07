@@ -340,6 +340,17 @@ is8 :: Registers -> Bool
 is8 r = elem r registers8
 
 
+-- Get the byte/word size of an instruction under a given encoding
+instructionSize :: Instruction -> Encoding -> Size
+instructionSize inst enc = do
+    let ordered = encodedOrder enc (operands inst)
+
+    case opSize (sizeHint inst) ordered of
+        Success   s -> s
+        Warn    m s -> trace m s
+        Fail    m   -> error m
+
+
 -- Check if an operand can match the given pattern.
 matchPattern :: Operand -> Pattern -> Bool
 
@@ -372,9 +383,13 @@ matchEncoding :: Instruction -> Encoding -> Bool
 matchEncoding inst enc = do
     let opers = (operands inst)
     let pat = (patterns enc)
+    let size = instructionSize inst enc
+
+    let sizeCheck = if null (sizes enc) then [] else [size `elem` (sizes enc)]
 
     all (== True) ([command inst == mnemonic enc,
                     length pat == length opers] ++
+                   sizeCheck ++
                    zipWith matchPattern opers pat)
 
 
@@ -416,16 +431,15 @@ encodeData i = do
 
 -- Literals are parsed as the smallest number of bytes which can contain the
 -- value. During encoding they need to be padded with zero bytes to the size
--- of the register involved, with a ceiling of the max size of the pattern the
+-- of the instruction, with a ceiling of the max size of the pattern the
 -- literal operand matched with.
-padLiterals :: [(Operand, Pattern)] -> [Operand]
-padLiterals [(Register r, _), (Immediate (Literal b), p)] = do
-    let regSize = sizeInt (registerSize r)
+padLiterals :: [(Operand, Pattern)] -> Size -> [Operand]
+padLiterals [(left, _), (Immediate (Literal b), p)] size = do
     let maxPatternSize = maximum (immBytes p)
-    let target = minimum [regSize, maxPatternSize]
+    let target = minimum [sizeInt size, maxPatternSize]
     let bytes = b ++ replicate (target - length b) 0x00
-    [Register r, Immediate (Literal bytes)]
-padLiterals o = map fst o
+    [left, Immediate (Literal bytes)]
+padLiterals o _ = map fst o
 
 
 -- Encode a code instruction into bytes (the command can't be in dataCommands).
@@ -434,13 +448,9 @@ encodeCode i enc = do
     let pref0f = if prefix0f enc then [0x0f] else []
     let primaryOp = resolveOpCode enc i
     let op = pref0f ++ [primaryOp]
-    let padded = padLiterals (zip (operands i) (patterns enc))
+    let size = instructionSize i enc
+    let padded = padLiterals (zip (operands i) (patterns enc)) size
     let ordered = encodedOrder enc padded
-
-    let size = case opSize (sizeHint i) ordered of
-              Success   s -> s
-              Warn    m s -> trace m s
-              Fail    m   -> error m
 
     Encoded {
         encoding     = enc,

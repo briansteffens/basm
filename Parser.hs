@@ -2,6 +2,7 @@ module Parser where
 
 import Data.Binary
 import Data.Char
+import Data.Int
 import Data.List
 import Data.Maybe
 import qualified Text.Read as TR
@@ -121,6 +122,25 @@ parsePart (Unquoted    t) = do
     makePart parsedRegister parsedInt t
 
 
+-- Check if an integer value can fit in an Int8
+fitsInt8 :: Integer -> Bool
+fitsInt8 v = v >= fromIntegral (minBound :: Int8) &&
+             v <= fromIntegral (maxBound :: Int8)
+
+
+-- Check if an integer value can fit in an Int32
+fitsInt32 :: Integer -> Bool
+fitsInt32 v = v >= fromIntegral (minBound :: Int32) &&
+              v <= fromIntegral (maxBound :: Int32)
+
+
+parseDisplacement :: Integer -> Displacement
+parseDisplacement i
+    | fitsInt8  i = Displacement8  (fromIntegral i)
+    | fitsInt32 i = Displacement32 (fromIntegral i)
+    | otherwise   = error("Invalid displacement value")
+
+
 -- Parse an operand from a list of tokens.
 parseOperand :: Line -> Command -> [OperandPart] -> ([Operand], [Error])
 parseOperand _ _   []               = ([], [])
@@ -143,6 +163,16 @@ parseOperand _ _ [ControlPart '[', RegisterPart b, ControlPart ']'] =
 parseOperand _ _ [ControlPart '[', RegisterPart b, ControlPart '+',
                   RegisterPart i, ControlPart ']'] =
     ([Address b NoScale i NoDisplacement], [])
+
+-- [rax+8]
+parseOperand _ _ [ControlPart '[', RegisterPart b, ControlPart '+',
+                  NumericPart n, ControlPart ']'] =
+    ([Address b NoScale NoRegister (parseDisplacement n)], [])
+
+-- [rax-8]
+parseOperand _ _ [ControlPart '[', RegisterPart b, ControlPart '-',
+                  NumericPart n, ControlPart ']'] =
+    ([Address b NoScale NoRegister (parseDisplacement (-1 * n))], [])
 
 -- Catch-all for expressions to be parsed later
 parseOperand _ _ parts = ([Expression parts], [])
