@@ -65,7 +65,9 @@ encodings = [
     enc {
         mnemonic     = ADD,
         patterns     = [R RAX, P_imm1632],
-        primary      = 0x05
+        primary      = 0x05,
+        modRmByte    = False,
+        default32    = True
     },
     enc {
         mnemonic     = ADD,
