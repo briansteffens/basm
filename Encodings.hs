@@ -249,13 +249,15 @@ encodings = [
     enc {
         mnemonic     = MOV,
         patterns     = [P_r8, P_rm8],
-        primary      = 0x8A
+        primary      = 0x8A,
+        reverseOpers = True
     },
     enc {
         mnemonic     = MOV,
         patterns     = [P_r163264, P_rm163264],
         primary      = 0x8B,
-        default32    = True
+        default32    = True,
+        reverseOpers = True
     },
     enc {
         mnemonic     = MOV,
