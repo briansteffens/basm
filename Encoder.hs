@@ -368,6 +368,7 @@ matchPattern (Register r) P_rm6416        = elem r registers16 ||
 matchPattern (Address _ _ _ _) P_rm8      = True
 matchPattern (Address _ _ _ _) P_rm163264 = True
 matchPattern (Address _ _ _ _) P_rm6416   = True
+matchPattern (Address _ _ _ _) P_m        = True
 
 matchPattern (Immediate (Literal l)) p    = immFit (length l) p
 matchPattern (Immediate (Symbol s _)) p   = immFit (sizeInt s) p

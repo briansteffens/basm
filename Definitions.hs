@@ -15,6 +15,7 @@ data Command = ADC
              | JE
              | JG
              | JMP
+             | LEA
              | MOV
              | OR
              | POP
@@ -189,6 +190,7 @@ data Pattern = P_r8            -- An 8-bit register
              | P_imm163264     -- A 16/32/64-bit immediate
              | P_rel8          -- An 8-bit relative offset
              | P_rel1632       -- A 16/32-bit relative offset
+             | P_m             -- A memory address
              | R Registers     -- A single register match
              deriving Show
 

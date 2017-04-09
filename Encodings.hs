@@ -235,6 +235,16 @@ encodings = [
         primary      = 0xE9
     },
 
+----LEA encodings--------------------------------------------------------------
+
+    enc {
+        mnemonic     = LEA,
+        patterns     = [P_r163264, P_m],
+        primary      = 0x8D,
+        default32    = True,
+        reverseOpers = True
+    },
+
 ----MOV encodings--------------------------------------------------------------
 
     enc {
