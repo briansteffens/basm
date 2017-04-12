@@ -503,6 +503,7 @@ displacementSymbol _                                           = Nothing
 -- If an immediate symbol is present, return the name and size.
 immediateSymbol :: [Operand] -> Maybe (Size, String)
 immediateSymbol [_, Immediate (Symbol s n)] = Just (s, n)
+immediateSymbol [Relative (Symbol s n)    ] = Just (s, n)
 immediateSymbol _                           = Nothing
 
 
@@ -557,21 +558,30 @@ encodingLength :: Instruction -> Encoding -> Int
 encodingLength inst enc = encodedLength (encodeInstruction inst enc)
 
 
--- TODO: maybe? or will some earlier validator step catch these?
-findLabel :: [Label] -> String -> Label
-findLabel labels search = fromJust (find (\l -> label l == search) labels)
+-- Find a label by name
+findLabel :: [Label] -> String -> Maybe Label
+findLabel labels search = find (\l -> label l == search) labels
+
+
+-- Find a label by name which should exist (or panic if not)
+findLabelExpect :: [Label] -> String -> Label
+findLabelExpect labels search = fromJust (findLabel labels search)
 
 
 -- Replace a relative symbol with a relative offset (hooks up a jump).
 relativeOffset :: Instruction -> Int -> [Label] -> Instruction
 relativeOffset inst@Instruction { operands=[Relative (Symbol size str)] }
                offset labels = do
-    let target = labelOffset (findLabel labels str)
-    let delta = fromIntegral (target - offset) :: Int32
+    let label = findLabel labels str
 
-    inst {
-        operands = [Relative (Literal (toBytes delta))]
+    let rewritten = inst {
+        operands = [Relative (Literal (toBytes (fromIntegral
+                    ((labelOffset (fromJust label)) - offset) :: Int32)))]
     }
+
+    case label of
+        Nothing -> inst
+        Just _  -> rewritten
 relativeOffset inst _ _ = inst
 
 

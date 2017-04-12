@@ -294,10 +294,17 @@ parseGlobalOperand [Unquoted n, Unquoted t] = Global (readSymbolType t)
                                                      (init n)
 
 
+parseExternOperand :: [Token] -> Directive
+parseExternOperand [Unquoted n] = Extern n
+
+
 parseDirective :: Line -> ([Directive], [Error])
 parseDirective Line { tokens=(Unquoted "global":params) } = do
     let parts = splitOperands params
     (map parseGlobalOperand parts, [])
+parseDirective Line { tokens=(Unquoted "extern":params) } = do
+    let parts = splitOperands params
+    (map parseExternOperand parts, [])
 parseDirective _ = ([], [])
 
 

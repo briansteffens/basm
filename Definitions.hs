@@ -231,6 +231,7 @@ registerSize r
 
 
 data Directive = Global SymbolType    String
+               | Extern String
                | Equ    [OperandPart] String
                deriving Eq
 

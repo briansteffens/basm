@@ -2,3 +2,5 @@ dist
 *.o
 *.a
 *.hi
+a.out
+Main

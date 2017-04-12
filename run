@@ -12,8 +12,8 @@ case "$1" in
     basm)
         #cabal build
         #dist/build/basm/basm $SRC
-        ghc Main.hs
-        ./Main $SRC
+        ghc Main.hs -prof -fprof-auto -fprof-cafs
+        ./Main $SRC +RTS -xc
         ld basm.o -o basm.a
         ./basm.a
         echo $?

@@ -137,11 +137,16 @@ data RelocationSection = RelocationSection {
 
 
 -- An entry in a relocation table
-data Relocation = Relocation {
-    sourceOffset  :: E.NamedOffset,
-    targetSection :: E.EncodedSection,
-    targetLabel   :: E.Label
-}
+data Relocation
+    = LocalRelocation {
+        sourceOffset  :: E.NamedOffset,
+        targetSection :: E.EncodedSection,
+        targetLabel   :: E.Label
+    }
+    | ExternRelocation {
+        sourceOffset  :: E.NamedOffset,
+        externName    :: String
+    }
 
 
 -- Convert a RelocationType into a 4-byte format for a rela tab
@@ -160,18 +165,26 @@ findLabel (section:rest) name =
 
 
 -- Generate relocations from sections
-generateRelocations :: [E.EncodedSection] -> [Section]
-generateRelocations sections = do
+generateRelocations :: [String] -> [E.EncodedSection] -> [Section]
+generateRelocations externs sections = do
     let makeRelo offset = do
         let (ts, l) = case findLabel sections (E.name offset) of
                      Just (ts, l) -> (ts, l)
                      Nothing      -> error ("Label " ++ (E.name offset) ++
                                             " not found")
-        Relocation {
+        let localRelo = LocalRelocation {
             sourceOffset  = offset,
             targetSection = ts,
             targetLabel   = l
         }
+
+        let externRelo = ExternRelocation {
+            sourceOffset = offset,
+            externName   = E.name offset
+        }
+
+        let isExtern = elem (E.name offset) externs
+        if isExtern then externRelo else localRelo
 
     let handleSection section = do
         let relos = map makeRelo (E.symbols section)
@@ -217,9 +230,19 @@ sectionSymbolIndex symbols sectionName = do
         Just i  -> i
 
 
+-- Get the index of a symbol by its name
+symbolIndex :: [Symbol] -> String -> Int
+symbolIndex symbols name = do
+    let test sym = (symbolName sym) == name
+    case indexOf test symbols of
+        Nothing -> error("Symbol " ++ name ++ " not found")
+        Just i  -> i
+
+
 -- Check if a directive is a global with the given name.
 matchGlobalDirective :: String -> D.Directive -> Bool
 matchGlobalDirective search (D.Global _ name) = name == search
+matchGlobalDirective _      _                 = False
 
 
 -- Generate a symtab including a null symbol, filename symbol, symbols for
@@ -289,43 +312,84 @@ generateSymTab sections filename directives = do
         map labelSymbol (E.labels sec)
 
     let labels = concat (map labelSection sections)
-    let labelsSorted = sortBy (\l r -> compare (binding l) (binding r)) labels
+
+    -- Extern directives should have symbols for them
+    let externSymbol d = do
+        case d of
+            D.Extern name -> [Symbol {
+                symbolName = name,
+                symbolType = D.STT_NOTYPE,
+                binding    = STB_GLOBAL,
+                visibility = STV_DEFAULT,
+                relation   = RelationUndefined,
+                value      = [0, 0, 0, 0, 0, 0, 0, 0],
+                size       = 0
+            }]
+            _ -> []
+
+    let externs = concat (map externSymbol directives)
+
+    let sortable = labels ++ externs
+    let sorted = sortBy (\l r -> compare (binding l) (binding r)) sortable
 
     Section {
         sectionName = ".symtab",
         contents    = SymTabContents ([nullSymbol, fileSymbol] ++
                                       sectionSymbols ++
-                                      labelsSorted)
+                                      sorted)
     }
+
+
+-- Convert a relocation entry into bytes
+renderRelocation :: [Section] -> [Symbol] -> Relocation -> [Word8]
+
+renderRelocation all symbols relo@(LocalRelocation _ _ _) = do
+    let targetName = D.sectionName (E.section (targetSection relo))
+    let targetIndex = sectionSymbolIndex symbols targetName
+
+    toBytes (E.offset (sourceOffset relo)) ++
+        renderRelocationType R_X86_64_64 ++
+        toBytes (fromIntegral targetIndex :: Word32) ++
+        toBytes (fromIntegral (E.labelOffset (targetLabel relo)) :: Int64)
+
+renderRelocation all symbols relo@(ExternRelocation _ _) = do
+    let targetName = externName relo
+    let targetIndex = symbolIndex symbols targetName
+
+    toBytes (E.offset (sourceOffset relo)) ++
+        renderRelocationType R_X86_64_PC32 ++
+        toBytes (fromIntegral targetIndex :: Word32) ++
+        toBytes (fromIntegral (-4) :: Int64) -- TODO: why -4?
 
 
 -- Convert a list of relocation table entries into bytes
 renderRelocations :: [Section] -> [Relocation] -> [Word8]
 renderRelocations all relos = do
-    let render relo = do
-        let symtab = getSection all ".symtab"
-        let symbols = case contents symtab of
-                     SymTabContents c -> c
-                     _                -> error("No symtab present when " ++
-                                               "rendering symtabs")
-        let targetName = D.sectionName (E.section (targetSection relo))
-        let targetIndex = sectionSymbolIndex symbols targetName
+    let symtab = getSection all ".symtab"
+    let symbols = case contents symtab of
+                 SymTabContents c -> c
+                 _                -> error("No symtab present when " ++
+                                           "rendering symtabs")
 
-        toBytes (E.offset (sourceOffset relo)) ++
-            renderRelocationType R_X86_64_64 ++
-            toBytes (fromIntegral targetIndex :: Word32) ++
-            toBytes (fromIntegral (E.labelOffset (targetLabel relo)) :: Int64)
+    concat (map (renderRelocation all symbols) relos)
 
-    concat (map render relos)
+
+-- Get a list of all extern names
+getExternNames :: [D.Directive] -> [String]
+getExternNames [] = []
+getExternNames (D.Extern name:xs) = [name] ++ getExternNames xs
+getExternNames (_            :xs) = getExternNames xs
 
 
 -- Generate a strtab from a list of code sections and a filename
-generateStrTab :: [E.EncodedSection] -> String -> Section
-generateStrTab sections filename = do
+generateStrTab :: [D.Directive] -> [E.EncodedSection] -> String -> Section
+generateStrTab directives sections filename = do
+    let allExterns = getExternNames directives
     let allLabels = map E.label (concat (map E.labels sections))
     Section {
         sectionName = ".strtab",
-        contents    = StrTabContents (["", filename] ++ allLabels)
+        contents    = StrTabContents (["", filename] ++ allLabels ++
+                                                        allExterns)
     }
 
 
@@ -553,7 +617,7 @@ assemble codeSections directives = do
 
     -- Generate strtab
     let filename = "file.asm"
-    let strTab = generateStrTab progBitsEncoded filename
+    let strTab = generateStrTab directives progBitsEncoded filename
 
 
     -- Generate null section
@@ -579,7 +643,8 @@ assemble codeSections directives = do
 
 
     -- Generate relocations
-    let relocationSections = generateRelocations progBitsEncoded
+    let externNames = getExternNames directives
+    let relocationSections = generateRelocations externNames progBitsEncoded
     let sectionsProgReloSymStr = [nullSection] ++ progBitsSections ++
                                  relocationSections ++ [symTab, strTab]
 
