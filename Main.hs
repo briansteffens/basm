@@ -29,4 +29,6 @@ main = do
     let (bytes, debug) = E.assemble sections directives
 
     --putStrLn debug
-    B.writeFile "basm.o" bytes
+
+    let objFilename = (takeWhile (/= '.') filename) ++ ".o"
+    B.writeFile objFilename bytes

@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 
 SRC="examples/${2}.asm"
+OBJ="examples/${2}.o"
 
 case "$1" in
     nasm)
@@ -14,6 +15,8 @@ case "$1" in
         #dist/build/basm/basm $SRC
         ghc Main.hs -prof -fprof-auto -fprof-cafs
         ./Main $SRC +RTS -xc
+        mv $OBJ basm.o
+
         ld basm.o -o basm.a
         ./basm.a
         echo $?
