@@ -127,7 +127,8 @@ encodings = [
     enc {
         mnemonic     = CMP,
         patterns     = [R AL, P_imm8],
-        primary      = 0x3C
+        primary      = 0x3C,
+        modRmByte    = False
     },
     enc {
         mnemonic     = CMP,
