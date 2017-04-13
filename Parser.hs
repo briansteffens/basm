@@ -141,6 +141,14 @@ parseDisplacement i
     | otherwise   = error("Invalid displacement value")
 
 
+parseScale :: Integer -> Scale
+parseScale 1 = NoScale
+parseScale 2 = Scale2
+parseScale 4 = Scale4
+parseScale 8 = Scale8
+parseScale _ = error("Invalid scale value")
+
+
 -- Parse an operand from a list of tokens.
 parseOperand :: Line -> Command -> [OperandPart] -> ([Operand], [Error])
 parseOperand _ _   []               = ([], [])
@@ -173,6 +181,12 @@ parseOperand _ _ [ControlPart '[', RegisterPart b, ControlPart '+',
 parseOperand _ _ [ControlPart '[', RegisterPart b, ControlPart '-',
                   NumericPart n, ControlPart ']'] =
     ([Address b NoScale NoRegister (parseDisplacement (-1 * n))], [])
+
+-- [rax*8+rbx]
+parseOperand _ _ [ControlPart '[', RegisterPart i, ControlPart '*',
+                  NumericPart s, ControlPart '+', RegisterPart b,
+                  ControlPart ']'] =
+    ([Address b (parseScale s) i NoDisplacement], [])
 
 -- Catch-all for expressions to be parsed later
 parseOperand _ _ parts = ([Expression parts], [])
