@@ -8,6 +8,15 @@ import qualified Parser as P
 import qualified Elf as E
 
 
+allAfterFirstDot :: String -> String
+allAfterFirstDot ('.':xs) = xs
+allAfterFirstDot ( _ :xs) = allAfterFirstDot xs
+
+
+chopExtension :: String -> String
+chopExtension fn = reverse (allAfterFirstDot (reverse fn))
+
+
 main :: IO ()
 main = do
     args <- getArgs
@@ -30,5 +39,5 @@ main = do
 
     --putStrLn debug
 
-    let objFilename = (takeWhile (/= '.') filename) ++ ".o"
+    let objFilename = (chopExtension filename) ++ ".o"
     B.writeFile objFilename bytes
