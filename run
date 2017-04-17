@@ -13,8 +13,8 @@ case "$1" in
     basm)
         #cabal build
         #dist/build/basm/basm $SRC
-        ghc Main.hs -prof -fprof-auto -fprof-cafs
-        ./Main $SRC +RTS -xc
+        ghc Main.hs #-prof -fprof-auto -fprof-cafs
+        ./Main $SRC -v #+RTS -xc
         mv $OBJ basm.o
 
         ld basm.o -o basm.a
