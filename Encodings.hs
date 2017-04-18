@@ -399,7 +399,9 @@ encodings = [
     enc {
         mnemonic     = SUB,
         patterns     = [R RAX, P_imm1632],
-        primary      = 0x2D
+        primary      = 0x2D,
+        modRmByte    = False,
+        default32    = True
     },
     enc {
         mnemonic     = SUB,
