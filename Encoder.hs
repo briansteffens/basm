@@ -49,10 +49,16 @@ data Encoded = Encoded {
 }
 
 
+data OffsetType = OffsetImmediate
+                | OffsetDisplacement
+                deriving Eq
+
+
 data NamedOffset = NamedOffset {
-    name   :: String,
-    offset :: Int,
-    size   :: Size
+    name       :: String,
+    offset     :: Int,
+    size       :: Size,
+    offsetType :: OffsetType
 }
 
 
@@ -149,7 +155,8 @@ inferOpSize [Address _ _ _ _, Register r     ] = Success (registerSize r)
 inferOpSize [Register r     , Address _ _ _ _] = Success (registerSize r)
 inferOpSize [Register r1    , Register r2    ]
     | size1 == size2                           = Success size1
-    | otherwise                                = Fail "Operand size mismatch"
+    | otherwise                                = Fail ("Operand size " ++
+                                                          "mismatch")
     where size1 = registerSize r1
           size2 = registerSize r2
 
@@ -206,16 +213,17 @@ encodedOrder enc operands
 
 -- Generate the first two bits of ModR/M field.
 modBits :: [Operand] -> [Int]
-modBits [Address  _   _ _  NoDisplacement         , _] = [0, 0]
-modBits [Address  RIP _ _ (Displacement32     _  ), _] = [0, 0]
-modBits [Address  RIP _ _ (DisplacementSymbol _ _), _] = [0, 0]
-modBits [Address  EIP _ _ (Displacement32     _  ), _] = [0, 0]
-modBits [Address  EIP _ _ (DisplacementSymbol _ _), _] = [0, 0]
-modBits [Address  _   _ _ (Displacement8      _  ), _] = [0, 1]
-modBits [Address  _   _ _ (Displacement32     _  ), _] = [1, 0]
-modBits [Address  _   _ _ (DisplacementSymbol _ _), _] = [1, 0]
-modBits [Register _                               , _] = [1, 1]
-modBits [Register _                                  ] = [1, 1]
+modBits [Address  _          _ _  NoDisplacement         , _] = [0, 0]
+modBits [Address  RIP        _ _ (Displacement32     _  ), _] = [0, 0]
+modBits [Address  RIP        _ _ (DisplacementSymbol _ _), _] = [0, 0]
+modBits [Address  EIP        _ _ (Displacement32     _  ), _] = [0, 0]
+modBits [Address  EIP        _ _ (DisplacementSymbol _ _), _] = [0, 0]
+modBits [Address  NoRegister _ _ (DisplacementSymbol _ _), _] = [0, 0]
+modBits [Address  _          _ _ (Displacement8      _  ), _] = [0, 1]
+modBits [Address  _          _ _ (Displacement32     _  ), _] = [1, 0]
+modBits [Address  _          _ _ (DisplacementSymbol _ _), _] = [1, 0]
+modBits [Register _                                      , _] = [1, 1]
+modBits [Register _                                         ] = [1, 1]
 
 
 -- Generate the R/M bits of a ModR/M byte.
@@ -223,6 +231,8 @@ rmBits :: Operand -> [Int]
 rmBits (Register r                                        ) = registerIndex r
 rmBits (Address  RIP NoScale NoRegister (Displacement32 _)) = [1, 0, 1]
 rmBits (Address  EIP NoScale NoRegister (Displacement32 _)) = [1, 0, 1]
+rmBits (Address NoRegister NoScale NoRegister (DisplacementSymbol _ _)) =
+    [1, 0, 0] -- SIB
 rmBits (Address  r   NoScale NoRegister _                 ) = registerIndex r
 rmBits (Address  _   _       _          _                 ) = [1, 0, 0] -- SIB
 
@@ -256,12 +266,24 @@ encodeScale Scale4  = [1, 0]
 encodeScale Scale8  = [1, 1]
 
 
+encodeSibIndex :: Registers -> [Int]
+encodeSibIndex NoRegister = toBits 4
+encodeSibIndex r
+    | elem r [AH, SPL, SP, ESP, RSP, R12B, R12W, R12D, R12] =
+        error(show r ++ " cannot be an index register")
+    | otherwise = registerIndex r
+
+
 -- Encode a SIB byte if necessary.
 encodeSib :: [Operand] -> [Word8]
+encodeSib [Address base scale index (DisplacementSymbol _ _), _] =
+    [bitsToByte (encodeScale scale ++
+                 encodeSibIndex index ++
+                 [1, 0, 1])]
 encodeSib [Address _    NoScale NoRegister _, _] = []
 encodeSib [Address base scale   index      _, _] =
     [bitsToByte (encodeScale scale ++
-                 registerIndex index ++
+                 encodeSibIndex index ++
                  registerIndex base)]
 encodeSib [_, _]                                 = []
 encodeSib [_]                                    = []
@@ -519,15 +541,17 @@ symbolOffsets inst enc offset = do
 
     let ordered = encodedOrder (encoding enc) (operands inst)
 
-    let make s n o = NamedOffset { name = n, offset = o, size = s }
+    let make s n o t = NamedOffset { name = n, offset = o, size = s,
+                                     offsetType = t }
 
     let disp = case displacementSymbol ordered of
-              Just (s, n) -> [make s n commandByteLen]
+              Just (s, n) -> [make s n commandByteLen OffsetDisplacement]
               Nothing     -> []
 
     let imm = case immediateSymbol ordered of
              Just (s, n) -> [make s n (commandByteLen +
-                                      (length (displacement enc)))]
+                                      (length (displacement enc)))
+                                  OffsetImmediate]
              Nothing     -> []
 
     disp ++ imm

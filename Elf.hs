@@ -127,6 +127,7 @@ data SectionHeader = SectionHeader {
 -- The type of a relocation table entry
 data RelocationType = R_X86_64_64
                     | R_X86_64_PC32
+                    | R_X86_64_32S
 
 
 -- The contents of a relocation table
@@ -139,9 +140,10 @@ data RelocationSection = RelocationSection {
 -- An entry in a relocation table
 data Relocation
     = LocalRelocation {
-        sourceOffset  :: E.NamedOffset,
-        targetSection :: E.EncodedSection,
-        targetLabel   :: E.Label
+        sourceOffset   :: E.NamedOffset,
+        targetSection  :: E.EncodedSection,
+        targetLabel    :: E.Label,
+        relocationType :: RelocationType
     }
     | ExternRelocation {
         sourceOffset  :: E.NamedOffset,
@@ -153,6 +155,7 @@ data Relocation
 renderRelocationType :: RelocationType -> [Word8]
 renderRelocationType R_X86_64_64   = [0x01, 0x00, 0x00, 0x00]
 renderRelocationType R_X86_64_PC32 = [0x02, 0x00, 0x00, 0x00]
+renderRelocationType R_X86_64_32S  = [0x0b, 0x00, 0x00, 0x00]
 
 
 -- Find a label and its section by label name
@@ -172,10 +175,16 @@ generateRelocations externs sections = do
                      Just (ts, l) -> (ts, l)
                      Nothing      -> error ("Label " ++ (E.name offset) ++
                                             " not found")
+
+        let reloType = if E.offsetType offset == E.OffsetImmediate
+                           then R_X86_64_64
+                           else R_X86_64_32S
+
         let localRelo = LocalRelocation {
-            sourceOffset  = offset,
-            targetSection = ts,
-            targetLabel   = l
+            sourceOffset   = offset,
+            targetSection  = ts,
+            targetLabel    = l,
+            relocationType = reloType
         }
 
         let externRelo = ExternRelocation {
@@ -343,12 +352,12 @@ generateSymTab sections filename directives = do
 -- Convert a relocation entry into bytes
 renderRelocation :: [Section] -> [Symbol] -> Relocation -> [Word8]
 
-renderRelocation all symbols relo@(LocalRelocation _ _ _) = do
+renderRelocation all symbols relo@(LocalRelocation _ _ _ _) = do
     let targetName = D.sectionName (E.section (targetSection relo))
     let targetIndex = sectionSymbolIndex symbols targetName
 
     toBytes (E.offset (sourceOffset relo)) ++
-        renderRelocationType R_X86_64_64 ++
+        renderRelocationType (relocationType relo) ++
         toBytes (fromIntegral targetIndex :: Word32) ++
         toBytes (fromIntegral (E.labelOffset (targetLabel relo)) :: Int64)
 
@@ -765,8 +774,7 @@ showStrTab tab = case contents tab of
     _                -> error("not a strtab")
 
 
-showOffset (E.NamedOffset n o s) = n ++ "=(" ++ show s ++ ") " ++
-                                           show o
+showOffset (E.NamedOffset n o s _) = n ++ "=(" ++ show s ++ ") " ++ show o
 
 
 showLabel (E.Label n o) = n ++ "=" ++ (show o)
