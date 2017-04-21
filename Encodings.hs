@@ -141,7 +141,8 @@ encodings = [
         mnemonic     = CMP,
         patterns     = [P_rm8, P_imm8],
         primary      = 0x80,
-        opExtension  = Just 7
+        opExtension  = Just 7,
+        sizes        = [BYTE]
     },
     enc {
         mnemonic     = CMP,
