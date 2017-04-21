@@ -7,6 +7,8 @@ import Data.List
 import Data.Maybe
 import qualified Text.Read as TR
 
+import Debug.Trace (trace)
+
 import Shared
 import Definitions
 import Tokenizer
@@ -149,6 +151,18 @@ parseScale 8 = Scale8
 parseScale _ = error("Invalid scale value")
 
 
+stripLeft :: (a -> Bool) -> [a] -> [a]
+stripLeft _ [] = []
+stripLeft p (x:xs)
+    | matched   = stripLeft p xs
+    | otherwise = [x] ++ xs
+    where matched = p x
+
+
+stripRight :: (a -> Bool) -> [a] -> [a]
+stripRight p x = reverse (stripLeft p (reverse x))
+
+
 -- Parse an operand from a list of tokens.
 parseOperand :: Line -> Command -> [OperandPart] -> ([Operand], [Error])
 parseOperand _ _   []               = ([], [])
@@ -158,7 +172,7 @@ parseOperand _ _   [RegisterPart r] = ([Register r], [])
 
 -- 123
 parseOperand _ _   [NumericPart  n] = do
-    let bytes = takeWhile (/= 0) (toBytes n)
+    let bytes = stripRight (== 0) (toBytes n)
     let lit = if null bytes then [0x00] else bytes
     ([Immediate (Literal lit)], [])
 
