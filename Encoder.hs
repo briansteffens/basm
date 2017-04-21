@@ -49,6 +49,20 @@ data Encoded = Encoded {
 }
 
 
+instance Show Encoded where
+    show enc = intercalate "\n" [
+        "Encoded {",
+        "    encoding     = " ++ show (encoding enc),
+        "    sizePrefix   = " ++ show (sizePrefix enc),
+        "    rex          = " ++ show (rex enc),
+        "    op           = " ++ show (op enc),
+        "    modrm        = " ++ show (modrm enc),
+        "    sib          = " ++ show (sib enc),
+        "    displacement = " ++ show (displacement enc),
+        "    immediate    = " ++ show (immediate enc),
+        "}"]
+
+
 data OffsetType = OffsetImmediate
                 | OffsetDisplacement
                 deriving Eq
@@ -423,7 +437,12 @@ candidates inst = do
     let codeEncodings = concat (map match encodings)
 
     let isData = elem (command inst) dataCommands
-    if isData then [dataEncoding] else codeEncodings
+
+    let dataRet = dataEncoding {
+        mnemonic = command inst
+    }
+
+    if isData then [dataRet] else codeEncodings
 
 
 -- Find a valid Encoding for the given instruction.
@@ -436,10 +455,10 @@ chooseEncoding inst =
 
 -- Encode a data pseudo-instruction into bytes (the command must be in
 -- dataCommands).
-encodeData :: Instruction -> Encoded
-encodeData i = do
+encodeData :: Instruction -> Encoding -> Encoded
+encodeData i enc = do
     Encoded {
-        encoding     = dataEncoding,
+        encoding     = enc,
         sizePrefix   = [],
         rex          = [],
         op           = [],
@@ -488,19 +507,22 @@ encodeCode i enc = do
 -- Encode an instruction into bytes.
 encodeInstruction :: Instruction -> Encoding -> Encoded
 encodeInstruction i enc
-    | elem (mnemonic enc) dataCommands = encodeData i
+    | elem (mnemonic enc) dataCommands = encodeData i enc
     | otherwise                        = encodeCode i enc
 
 
 -- Get the total number of encoded bytes for an instruction.
 encodedLength :: Encoded -> Int
-encodedLength e = length (sizePrefix   e) +
+encodedLength e
+    | isData    = sizeInt (dataCommandSize (mnemonic (encoding e)))
+    | otherwise = length (sizePrefix   e) +
                   length (rex          e) +
                   length (op           e) +
                   length (modrm        e) +
                   length (sib          e) +
                   length (displacement e) +
                   length (immediate    e)
+    where isData = elem (mnemonic (encoding e)) dataCommands
 
 
 -- Extract encoded bytes from an instruction.

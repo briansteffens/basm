@@ -53,6 +53,13 @@ data Size = BYTE
           deriving (Eq, Show)
 
 
+dataCommandSize :: Command -> Size
+dataCommandSize DB = BYTE
+dataCommandSize DW = WORD
+dataCommandSize DD = DWORD
+dataCommandSize DQ = QWORD
+
+
 sizeInt :: Size -> Int
 sizeInt BYTE  = 1
 sizeInt WORD  = 2
@@ -211,6 +218,10 @@ data Encoding = Encoding {
     sizes        :: [Size]       -- Valid sizes for this instruction; empty
                                  -- list means all
 }
+
+
+instance Show Encoding where
+    show enc = show (mnemonic enc) ++ " " ++ show (primary enc)
 
 
 -- Symbol table entry type (part of st_info)
