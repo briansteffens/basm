@@ -23,6 +23,10 @@ data Command = ADC
              | RET
              | SBB
              | SETE
+             | SETG
+             | SETGE
+             | SETL
+             | SETLE
              | SETNE
              | SUB
              | SYSCALL

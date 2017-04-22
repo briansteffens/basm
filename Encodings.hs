@@ -357,6 +357,42 @@ encodings = [
         primary      = 0x94
     },
 
+----SETG encodings-------------------------------------------------------------
+
+    enc {
+        mnemonic     = SETG,
+        patterns     = [P_rm8],
+        prefix0f     = True,
+        primary      = 0x9F
+    },
+
+----SETGE encodings------------------------------------------------------------
+
+    enc {
+        mnemonic     = SETGE,
+        patterns     = [P_rm8],
+        prefix0f     = True,
+        primary      = 0x9D
+    },
+
+----SETL encodings-------------------------------------------------------------
+
+    enc {
+        mnemonic     = SETL,
+        patterns     = [P_rm8],
+        prefix0f     = True,
+        primary      = 0x9C
+    },
+
+----SETLE encodings------------------------------------------------------------
+
+    enc {
+        mnemonic     = SETLE,
+        patterns     = [P_rm8],
+        prefix0f     = True,
+        primary      = 0x9E
+    },
+
 ----SETNE encodings------------------------------------------------------------
 
     enc {
