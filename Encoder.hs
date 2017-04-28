@@ -648,7 +648,7 @@ relativeOffsets ((inst, enc):rest) labels offset = do
 exceptions :: Instruction -> Instruction
 
 -- No ModR/M encoding exists for the second operand being R13 with no
--- diplacement. The closest valid encoding is R13 with a 0 displacement.
+-- displacement. The closest valid encoding is R13 with a 0 displacement.
 exceptions
     inst@Instruction {
         operands = [
