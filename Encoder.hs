@@ -643,12 +643,36 @@ relativeOffsets ((inst, enc):rest) labels offset = do
     [(newInst, enc)] ++ inner
 
 
+-- x86_64 doesn't allow all combinations of opcodes and alternatives must be
+-- chosen in some cases.
+exceptions :: Instruction -> Instruction
+
+-- No ModR/M encoding exists for the second operand being R13 with no
+-- diplacement. The closest valid encoding is R13 with a 0 displacement.
+exceptions
+    inst@Instruction {
+        operands = [
+            first,
+            Address R13 NoScale NoRegister NoDisplacement
+        ]
+    } = inst {
+        operands = [
+            first,
+            Address R13 NoScale NoRegister (Displacement8 0)
+        ]
+    }
+
+exceptions inst = inst
+
+
 -- Encode a section.
 encodeSection :: CodeSection -> EncodedSection
 encodeSection sec = do
+    let insts = map exceptions (instructions sec)
+
     -- [Instruction] -> [(Instruction, Encoding)]
     let chooseOne i = (i, chooseEncoding i)
-    let instEncodings = map chooseOne (instructions sec)
+    let instEncodings = map chooseOne insts
 
     let labels = allLabelOffsets instEncodings 0
 
