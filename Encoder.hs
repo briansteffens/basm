@@ -103,6 +103,11 @@ anyExtendedRegisters :: Operand -> Bool
 anyExtendedRegisters operand = anyRegisters operand extendedRegisters
 
 
+-- Check if an operand references any uniform byte registers
+anyUniformByteRegisters :: Operand -> Bool
+anyUniformByteRegisters operand = anyRegisters operand uniformByteRegisters
+
+
 -- The optional extension bit for encoding a register.
 exBit :: Registers -> Int
 exBit r = if elem r extendedRegisters then 1 else 0
@@ -134,6 +139,7 @@ encodeRex :: Encoding -> Size -> [Operand] -> [Word8]
 encodeRex _ _ []  = []
 encodeRex enc size [op]
     | (size == QWORD && default32 enc) ||
+      anyUniformByteRegisters op ||
       anyExtendedRegisters op = [bitsToByte [0, 1, 0, 0,
                                              if size == QWORD then 1 else 0,
                                              extensionR [op, op],
@@ -142,6 +148,8 @@ encodeRex enc size [op]
     | otherwise               = []
 encodeRex enc size [op1, op2]
     | (size == QWORD && default32 enc) ||
+      anyUniformByteRegisters op1 ||
+      anyUniformByteRegisters op2 ||
       anyExtendedRegisters op1 ||
       anyExtendedRegisters op2 = [bitsToByte [0, 1, 0, 0,
                                               if size == QWORD then 1 else 0,
@@ -292,6 +300,10 @@ encodeSib [Address base scale index (DisplacementSymbol _ _), _] =
     [bitsToByte (encodeScale scale ++
                  encodeSibIndex index ++
                  [1, 0, 1])]
+encodeSib [Address R12  scale   index      _, _] =
+    [bitsToByte (encodeScale scale ++
+                 encodeSibIndex index ++
+                 registerIndex R12)]
 encodeSib [Address _    NoScale NoRegister _, _] = []
 encodeSib [Address base scale   index      _, _] =
     [bitsToByte (encodeScale scale ++

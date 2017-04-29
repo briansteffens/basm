@@ -111,6 +111,9 @@ extendedRegisters = [R8,  R9,  R10,  R11,  R12,  R13,  R14,  R15,
                      R8B, R9B, R10B, R11B, R12B, R13B, R14B, R15B]
 
 
+uniformByteRegisters = [SPL, BPL, SIL, DIL]
+
+
 registers64 = [RAX, RBX, RCX, RDX, RBP, RSP, RSI, RDI, RIP] ++
               extendedRegisters
 
