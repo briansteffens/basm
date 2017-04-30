@@ -168,6 +168,7 @@ encodeSizePrefix enc size
 
 -- Infer the operation size based on its operands, if possible.
 inferOpSize :: [Operand] -> Result Size
+inferOpSize [Immediate _                     ] = Success QWORD
 inferOpSize [Relative (Symbol s _)           ] = Success s
 inferOpSize [Relative (Literal l)            ] = Success (intSize (length l))
 inferOpSize [Register r                      ] = Success (registerSize r)
@@ -269,7 +270,7 @@ regBits _ _                                 = [0, 0, 0]
 -- Generate a ModR/M byte if necessary.
 -- TODO: unify the 1- and 2-operand versions below
 encodeModRm :: Encoding -> [Operand] -> [Word8]
-encodeModRm enc [op]  = [bitsToByte (modBits [op] ++ [0, 0, 0] ++ rmBits op)]
+encodeModRm enc [op]  = [bitsToByte (modBits [op] ++ [0, 1, 1] ++ rmBits op)]
 encodeModRm enc [op1, op2]
     | registerAdd enc = []
     | otherwise       = [bitsToByte (modBits [op1, op2] ++
@@ -330,6 +331,7 @@ encodeImmediate [_, Immediate (Symbol  s   _)] = replicate (sizeInt s) 0
 encodeImmediate [Relative (Literal imm  )]     = imm
 -- TODO: remove when encodedLength is fixed
 encodeImmediate [Relative (Symbol  s   _)]     = replicate (sizeInt s) 0
+encodeImmediate [Immediate (Literal imm)]      = imm
 encodeImmediate _                              = []
 
 
@@ -481,16 +483,22 @@ encodeData i enc = do
     }
 
 
+padLiteral :: [Word8] -> Pattern -> Size -> [Word8]
+padLiteral bytes pattern size = do
+    let maxPatternSize = maximum (immBytes pattern)
+    let target = minimum [sizeInt size, maxPatternSize]
+    bytes ++ replicate (target - length bytes) 0x00
+
+
 -- Literals are parsed as the smallest number of bytes which can contain the
 -- value. During encoding they need to be padded with zero bytes to the size
 -- of the instruction, with a ceiling of the max size of the pattern the
 -- literal operand matched with.
 padLiterals :: [(Operand, Pattern)] -> Size -> [Operand]
 padLiterals [(left, _), (Immediate (Literal b), p)] size = do
-    let maxPatternSize = maximum (immBytes p)
-    let target = minimum [sizeInt size, maxPatternSize]
-    let bytes = b ++ replicate (target - length b) 0x00
-    [left, Immediate (Literal bytes)]
+    [left, Immediate (Literal (padLiteral b p size))]
+padLiterals [           (Immediate (Literal b), p)] size = do
+    [Immediate (Literal (padLiteral b p size))]
 padLiterals o _ = map fst o
 
 

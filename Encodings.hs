@@ -299,6 +299,22 @@ encodings = [
         default32    = True
     },
 
+----NEG encodings--------------------------------------------------------------
+
+    enc {
+        mnemonic     = NEG,
+        patterns     = [P_rm8],
+        primary      = 0xF6,
+        opExtension  = Just 3
+    },
+    enc {
+        mnemonic     = NEG,
+        patterns     = [P_rm163264],
+        primary      = 0xF7,
+        opExtension  = Just 3,
+        default32    = True
+    },
+
 ----POP encodings--------------------------------------------------------------
 
     enc {
@@ -327,7 +343,8 @@ encodings = [
     enc {
         mnemonic     = PUSH,
         patterns     = [P_imm1632],
-        primary      = 0x68
+        primary      = 0x68,
+        modRmByte    = False
     },
     enc {
         mnemonic     = PUSH,

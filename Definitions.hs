@@ -17,6 +17,7 @@ data Command = ADC
              | JMP
              | LEA
              | MOV
+             | NEG
              | OR
              | POP
              | PUSH
