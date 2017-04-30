@@ -213,6 +213,12 @@ parseOperand _ _ [ControlPart '[', RegisterPart i, ControlPart '*',
                   ControlPart ']'] =
     ([Address b (parseScale s) i NoDisplacement], [])
 
+-- [rbp+8*rcx+16]
+parseOperand _ _ [ControlPart '[', RegisterPart b, ControlPart '+',
+                  NumericPart s, ControlPart '*', RegisterPart i,
+                  ControlPart '+', NumericPart d, ControlPart ']'] =
+    ([Address b (parseScale s) i (parseDisplacement d)], [])
+
 -- Catch-all for expressions to be parsed later
 parseOperand _ _ parts = ([Expression parts], [])
 
