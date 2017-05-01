@@ -270,7 +270,9 @@ regBits _ _                                 = [0, 0, 0]
 -- Generate a ModR/M byte if necessary.
 -- TODO: unify the 1- and 2-operand versions below
 encodeModRm :: Encoding -> [Operand] -> [Word8]
-encodeModRm enc [op]  = [bitsToByte (modBits [op] ++ [0, 1, 1] ++ rmBits op)]
+encodeModRm Encoding{opExtension=Just ext} [op] =
+    [bitsToByte (modBits [op] ++ toBits ext ++ rmBits op)]
+encodeModRm enc [op]  = [bitsToByte (modBits [op] ++ [0, 0, 0] ++ rmBits op)]
 encodeModRm enc [op1, op2]
     | registerAdd enc = []
     | otherwise       = [bitsToByte (modBits [op1, op2] ++
