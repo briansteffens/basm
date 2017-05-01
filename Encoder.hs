@@ -534,7 +534,7 @@ encodeInstruction i enc
 -- Get the total number of encoded bytes for an instruction.
 encodedLength :: Encoded -> Int
 encodedLength e
-    | isData    = sizeInt (dataCommandSize (mnemonic (encoding e)))
+    | isData    = length (immediate    e)
     | otherwise = length (sizePrefix   e) +
                   length (rex          e) +
                   length (op           e) +

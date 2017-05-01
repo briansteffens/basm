@@ -7,6 +7,8 @@ import Data.Int
 import Data.List
 import qualified Data.ByteString.Lazy as B
 
+import Debug.Trace (trace)
+
 import Shared
 import qualified Definitions as D
 import qualified Encoder as E
@@ -355,11 +357,12 @@ renderRelocation :: [Section] -> [Symbol] -> Relocation -> [Word8]
 renderRelocation all symbols relo@(LocalRelocation _ _ _ _) = do
     let targetName = D.sectionName (E.section (targetSection relo))
     let targetIndex = sectionSymbolIndex symbols targetName
+    let labelOffset = E.labelOffset (targetLabel relo)
 
     toBytes (E.offset (sourceOffset relo)) ++
         renderRelocationType (relocationType relo) ++
         toBytes (fromIntegral targetIndex :: Word32) ++
-        toBytes (fromIntegral (E.labelOffset (targetLabel relo)) :: Int64)
+        toBytes (fromIntegral (trace ("AA: " ++ show labelOffset) labelOffset) :: Int64)
 
 renderRelocation all symbols relo@(ExternRelocation _ _) = do
     let targetName = externName relo
