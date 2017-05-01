@@ -174,6 +174,16 @@ encodings = [
         opExtension  = Just 1
     },
 
+----IDIV encodings-------------------------------------------------------------
+
+    enc {
+        mnemonic     = IDIV,
+        patterns     = [P_rm163264],
+        primary      = 0xF7,
+        default32    = True,
+        opExtension  = Just 7
+    },
+
 ----INC encodings--------------------------------------------------------------
 
     enc {

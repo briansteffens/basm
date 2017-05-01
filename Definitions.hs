@@ -11,6 +11,7 @@ data Command = ADC
              | CALL
              | CMP
              | DEC
+             | IDIV
              | INC
              | JE
              | JG
