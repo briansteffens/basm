@@ -473,6 +473,9 @@ chooseEncoding inst =
 -- dataCommands).
 encodeData :: Instruction -> Encoding -> Encoded
 encodeData i enc = do
+    let rawImm = concat (map extractLiteral (operands i))
+    let imm = padZeroes rawImm (sizeInt (dataCommandSize (mnemonic enc)))
+
     Encoded {
         encoding     = enc,
         sizePrefix   = [],
@@ -481,15 +484,19 @@ encodeData i enc = do
         modrm        = [],
         sib          = [],
         displacement = [],
-        immediate    = concat (map extractLiteral (operands i))
+        immediate    = imm
     }
+
+
+padZeroes :: [Word8] -> Int -> [Word8]
+padZeroes bytes size = bytes ++ replicate (size - length bytes) 0x00
 
 
 padLiteral :: [Word8] -> Pattern -> Size -> [Word8]
 padLiteral bytes pattern size = do
     let maxPatternSize = maximum (immBytes pattern)
     let target = minimum [sizeInt size, maxPatternSize]
-    bytes ++ replicate (target - length bytes) 0x00
+    padZeroes bytes target
 
 
 -- Literals are parsed as the smallest number of bytes which can contain the
@@ -536,7 +543,10 @@ encodeInstruction i enc
 -- Get the total number of encoded bytes for an instruction.
 encodedLength :: Encoded -> Int
 encodedLength e
-    | isData    = length (immediate    e)
+    | cmd == DB = length (immediate    e)
+    | cmd == DW = sizeInt WORD
+    | cmd == DD = sizeInt DWORD
+    | cmd == DQ = sizeInt QWORD
     | otherwise = length (sizePrefix   e) +
                   length (rex          e) +
                   length (op           e) +
@@ -544,7 +554,7 @@ encodedLength e
                   length (sib          e) +
                   length (displacement e) +
                   length (immediate    e)
-    where isData = elem (mnemonic (encoding e)) dataCommands
+    where cmd = mnemonic (encoding e)
 
 
 -- Extract encoded bytes from an instruction.

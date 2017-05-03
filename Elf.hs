@@ -362,7 +362,7 @@ renderRelocation all symbols relo@(LocalRelocation _ _ _ _) = do
     toBytes (E.offset (sourceOffset relo)) ++
         renderRelocationType (relocationType relo) ++
         toBytes (fromIntegral targetIndex :: Word32) ++
-        toBytes (fromIntegral (trace ("AA: " ++ show labelOffset) labelOffset) :: Int64)
+        toBytes (fromIntegral labelOffset :: Int64)
 
 renderRelocation all symbols relo@(ExternRelocation _ _) = do
     let targetName = externName relo
