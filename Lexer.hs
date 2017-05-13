@@ -48,7 +48,7 @@ readSymbolType  _  = Nothing
 
 -- Read characters until a delimiter into a Word or Label
 consumeWord :: String -> String -> ([Token], String)
-consumeWord []       acc = ([Word  acc], [])
+consumeWord []        acc = ([Word  acc], [])
 consumeWord (':':rem) acc = ([Label acc], rem)
 consumeWord (c  :rem) acc
     | isDelimiter = ([Word acc], [c] ++ rem)
