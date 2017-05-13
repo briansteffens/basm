@@ -66,7 +66,7 @@ consumeNumber (c:rem) acc
 
 -- Read one character from a quote
 consumeQuoteChar :: String -> (Maybe Char, String)
-consumeQuoteChar []             = error("Unexpected end of quote")
+consumeQuoteChar []              = error("Unexpected end of quote")
 consumeQuoteChar ('\\':'n' :rem) = (Just '\n', rem)
 consumeQuoteChar ('\\':'t' :rem) = (Just '\t', rem)
 consumeQuoteChar ('\\':'\\':rem) = (Just '\\', rem)
@@ -106,7 +106,7 @@ lexLine str = tokens ++ lexLine remaining
 
 -- Tokenize source code.
 lexer' :: [String] -> Int -> [Line]
-lexer' []     _   = []
+lexer' []     _    = []
 lexer' (c:rem) num = [line] ++ lexer' rem (succ num)
     where line = Line {
         sourceCode = c,
