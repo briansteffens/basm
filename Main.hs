@@ -1,12 +1,15 @@
 module Main where
 
 import System.Environment
+import Data.Either
 import Data.List
 import Control.Monad
 import qualified Data.ByteString.Lazy as B
 
+import Shared
+import qualified Lexer  as L
 import qualified Parser as P
-import qualified Elf as E
+import qualified Elf    as E
 
 
 allAfterFirstDot :: String -> String
@@ -50,21 +53,24 @@ main = do
 
     contents <- readFile (filename args)
 
-    let (sections, directives, errors, parseDebug) = P.parse contents
+    let lines = L.lexer contents
+
+    let parseRes   = P.parse lines
+    let errors     = if isLeft  parseRes then fromLeft parseRes        else []
+    let directives = if isRight parseRes then fst (fromRight parseRes) else []
+    let sections   = if isRight parseRes then snd (fromRight parseRes) else []
 
     let o = intercalate "\n" [
-           "basm lexer ---------------------------------------------------\n",
-           parseDebug,
+           "basm lines ---------------------------------------------------\n",
+           intercalate "\n" (map show lines),
            "\nbasm ast -----------------------------------------------------",
-           ("\n" ++ (intercalate "\n\n" (map P.showCodeSection sections))),
+           ("\n" ++ (intercalate "\n\n" (map show sections))),
            "\nbasm results -------------------------------------------------",
-           ("\nerrors:\n" ++ (intercalate "\n" (map P.showError errors)))]
+           ("\nerrors:\n" ++ (intercalate "\n" (map show errors)))]
 
     when (verbose args) $ putStrLn o
 
     let (bytes, debug) = E.assemble sections directives
-
-    --putStrLn debug
 
     let objFilename = (chopExtension (filename args)) ++ ".o"
     B.writeFile objFilename bytes
