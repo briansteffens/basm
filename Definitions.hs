@@ -302,6 +302,13 @@ data SymbolType =
     deriving (Eq, Show)
 
 
+instance Display SymbolType where
+    display STT_NOTYPE  = ""
+    display STT_SECTION = "section"
+    display STT_FILE    = "file"
+    display STT_FUNC    = "function"
+
+
 instance Read SymbolType where
     readsPrec _ ('f':'u':'n':'c':'t':'i':'o':'n':rem) = [(STT_FUNC, rem)]
     readsPrec _ _ = []
@@ -317,9 +324,15 @@ registerSize r
 
 
 data Directive =
-      Global SymbolType    String
+      Global SymbolType String
     | Extern String
     deriving (Eq, Show)
+
+
+instance Display Directive where
+    display (Global STT_NOTYPE s) = "global " ++ s
+    display (Global t          s) = "global " ++ s ++ ":" ++ display t
+    display (Extern            s) = "extern " ++ s
 
 
 showInstruction :: Instruction -> String

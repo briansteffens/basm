@@ -65,7 +65,8 @@ main = do
            "basm lines ---------------------------------------------------\n",
            intercalate "\n" (map display lines),
            "\nbasm ast -----------------------------------------------------",
-           ("\n" ++ (intercalate "\n\n" (map display sections))),
+           ("\n" ++ (intercalate "\n" (map display directives)) ++ "\n" ++
+           (intercalate "\n\n" (map display sections))),
            "\nbasm results -------------------------------------------------",
            ("\nerrors:\n" ++ (intercalate "\n" (map display errors)))]
 
