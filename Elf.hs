@@ -173,41 +173,41 @@ findLabel (section:rest) name =
 generateRelocations :: [String] -> [E.EncodedSection] -> [Section]
 generateRelocations externs sections = do
     let makeRelo offset = do
-        let (ts, l) = case findLabel sections (E.name offset) of
-                     Just (ts, l) -> (ts, l)
-                     Nothing      -> error ("Label " ++ (E.name offset) ++
-                                            " not found")
+         let (ts, l) = case findLabel sections (E.name offset) of
+                      Just (ts, l) -> (ts, l)
+                      Nothing      -> error ("Label " ++ (E.name offset) ++
+                                             " not found")
 
-        let reloType = if E.offsetType offset == E.OffsetImmediate
-                           then R_X86_64_64
-                           else R_X86_64_32S
+         let reloType = if E.offsetType offset == E.OffsetImmediate
+                            then R_X86_64_64
+                            else R_X86_64_32S
 
-        let localRelo = LocalRelocation {
-            sourceOffset   = offset,
-            targetSection  = ts,
-            targetLabel    = l,
-            relocationType = reloType
-        }
+         let localRelo = LocalRelocation {
+             sourceOffset   = offset,
+             targetSection  = ts,
+             targetLabel    = l,
+             relocationType = reloType
+         }
 
-        let externRelo = ExternRelocation {
-            sourceOffset = offset,
-            externName   = E.name offset
-        }
+         let externRelo = ExternRelocation {
+             sourceOffset = offset,
+             externName   = E.name offset
+         }
 
-        let isExtern = elem (E.name offset) externs
-        if isExtern then externRelo else localRelo
+         let isExtern = elem (E.name offset) externs
+         if isExtern then externRelo else localRelo
 
     let handleSection section = do
-        let relos = map makeRelo (E.symbols section)
+         let relos = map makeRelo (E.symbols section)
 
-        case length relos of
-            0 -> []
-            _ -> [Section {
-                   sectionName = ".rela" ++ D.sectionName (E.section section),
-                   contents = RelaContents (RelocationSection {
-                         sourceSection = section,
-                         relocations = relos
-                   })}]
+         case length relos of
+             0 -> []
+             _ -> [Section {
+                    sectionName = ".rela" ++ D.sectionName (E.section section),
+                    contents = RelaContents (RelocationSection {
+                          sourceSection = section,
+                          relocations = relos
+                    })}]
 
     concat (map handleSection sections)
 
@@ -298,45 +298,45 @@ generateSymTab sections filename directives = do
     -- Each label across all PROGBITS sections should have a symbol for it
     let labelSection sec = do
 
-        let labelSymbol label = do
-            let directive = find (matchGlobalDirective (E.label label))
-                                 directives
+         let labelSymbol label = do
+              let directive = find (matchGlobalDirective (E.label label))
+                                   directives
 
-            let symType = case directive of
-                              Just (D.Global t _) -> t
-                              otherwise           -> D.STT_NOTYPE
+              let symType = case directive of
+                                Just (D.Global t _) -> t
+                                otherwise           -> D.STT_NOTYPE
 
-            let symBinding = case directive of
-                                 Just _    -> STB_GLOBAL
-                                 otherwise -> STB_LOCAL
+              let symBinding = case directive of
+                                   Just _    -> STB_GLOBAL
+                                   otherwise -> STB_LOCAL
 
-            Symbol {
-                symbolName = E.label label,
-                symbolType = symType,
-                binding    = symBinding,
-                visibility = STV_DEFAULT,
-                relation   = RelatedSection (D.sectionName (E.section sec)),
-                value      = toBytes (E.labelOffset label),
-                size       = 0
-            }
+              Symbol {
+                  symbolName = E.label label,
+                  symbolType = symType,
+                  binding    = symBinding,
+                  visibility = STV_DEFAULT,
+                  relation   = RelatedSection (D.sectionName (E.section sec)),
+                  value      = toBytes (E.labelOffset label),
+                  size       = 0
+              }
 
-        map labelSymbol (E.labels sec)
+         map labelSymbol (E.labels sec)
 
     let labels = concat (map labelSection sections)
 
     -- Extern directives should have symbols for them
     let externSymbol d = do
-        case d of
-            D.Extern name -> [Symbol {
-                symbolName = name,
-                symbolType = D.STT_NOTYPE,
-                binding    = STB_GLOBAL,
-                visibility = STV_DEFAULT,
-                relation   = RelationUndefined,
-                value      = [0, 0, 0, 0, 0, 0, 0, 0],
-                size       = 0
-            }]
-            _ -> []
+         case d of
+             D.Extern name -> [Symbol {
+                 symbolName = name,
+                 symbolType = D.STT_NOTYPE,
+                 binding    = STB_GLOBAL,
+                 visibility = STV_DEFAULT,
+                 relation   = RelationUndefined,
+                 value      = [0, 0, 0, 0, 0, 0, 0, 0],
+                 size       = 0
+             }]
+             _ -> []
 
     let externs = concat (map externSymbol directives)
 
