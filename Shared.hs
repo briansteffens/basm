@@ -29,15 +29,6 @@ concatTuple :: ([a], [b]) -> ([a], [b]) -> ([a], [b])
 concatTuple (la, ra) (lb, rb) = (la ++ lb, ra ++ rb)
 
 
--- See if a list starts with another list
-startsWith :: (Eq a) => [a] -> [a] -> Bool
-startsWith hs [] = True
-startsWith [] _  = False            -- Ran out of haystack before needle
-startsWith (h:hs) (n:ns)
-    | h == n     = startsWith hs ns -- Current characters match
-    | otherwise  = False            -- Characters don't match
-
-
 stripLeft :: (a -> Bool) -> [a] -> [a]
 stripLeft _ [] = []
 stripLeft p (x:xs)

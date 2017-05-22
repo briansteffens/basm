@@ -60,10 +60,6 @@ instance Display Command where
     display cmd = map toLower $ show cmd
 
 
-readCommandMaybe :: String -> Maybe Command
-readCommandMaybe s = TR.readMaybe $ map toUpper s
-
-
 -- Pseudo-commands that render data rather than x64 instructions
 dataCommands = [DB, DW, DD, DQ]
 
@@ -134,10 +130,6 @@ data Registers =
 
 instance Display Registers where
     display r = map toLower $ show r
-
-
-readRegisterMaybe :: String -> Maybe Registers
-readRegisterMaybe s = TR.readMaybe $ map toUpper s
 
 
 registersHigh8 = [AH, BH, CH, DH]
@@ -333,13 +325,3 @@ instance Display Directive where
     display (Global STT_NOTYPE s) = "global " ++ s
     display (Global t          s) = "global " ++ s ++ ":" ++ display t
     display (Extern            s) = "extern " ++ s
-
-
-showInstruction :: Instruction -> String
-showInstruction inst = do
-    let labels = if null (labelNames inst) then ""
-                 else "  " ++ intercalate ": " (labelNames inst) ++ ":\n"
-    let size = if sizeHint inst == NoSize then ""
-               else (show (sizeHint inst) ++ " ")
-    labels ++ "    " ++ show (command inst) ++ " " ++ size ++
-        intercalate ", " (map show (operands inst))
