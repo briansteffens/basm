@@ -38,7 +38,11 @@ data Line = Line {
     sourceCode :: String,
     lineNumber :: Int,
     tokens     :: [Token]
-}
+}   deriving Show
+
+
+instance D.Display Line where
+    display line = "[" ++ show (lineNumber line) ++ "] " ++ (sourceCode line)
 
 
 readSymbolType :: Char -> Maybe SymbolType
@@ -136,14 +140,3 @@ lexer' (c:rem) num = [line] ++ lexer' rem (succ num)
 -- Bootstrap the lexer
 lexer :: String -> [Line]
 lexer src = lexer' (split (== '\n') src) 1
-
-
--- debug stuff ----------------------------------------------------------------
-
-
-instance Show Line where
-    show line = num ++ " " ++ code ++ "\n" ++ toks ++ "\n"
-        where num  = show $ lineNumber line
-              code = sourceCode line
-              toks = intercalate "\n" $ map ("- " ++) $
-                     map show $ tokens line

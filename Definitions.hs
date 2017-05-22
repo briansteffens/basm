@@ -12,6 +12,11 @@ import Debug.Trace (trace)
 import Shared
 
 
+-- Render a human-readable string, not evaluatable code
+class Display a where
+    display :: a -> String
+
+
 data Command =
       ADC
     | ADD
@@ -51,6 +56,10 @@ data Command =
     deriving (Eq, Show, Read)
 
 
+instance Display Command where
+    display cmd = map toLower $ show cmd
+
+
 readCommandMaybe :: String -> Maybe Command
 readCommandMaybe s = TR.readMaybe $ map toUpper s
 
@@ -70,6 +79,11 @@ data Size =
     | QWORD
     | NoSize
     deriving (Eq, Show)
+
+
+instance Display Size where
+    display NoSize = ""
+    display s = map toLower $ show s
 
 
 readSize :: String -> Size
@@ -118,6 +132,10 @@ data Registers =
     deriving (Eq, Show, Read)
 
 
+instance Display Registers where
+    display r = map toLower $ show r
+
+
 readRegisterMaybe :: String -> Maybe Registers
 readRegisterMaybe s = TR.readMaybe $ map toUpper s
 
@@ -156,6 +174,17 @@ data Displacement =
     deriving Show
 
 
+instance Display Displacement where
+    display NoDisplacement           = ""
+    display (DisplacementSymbol _ s) = "+ " ++ s
+    display (Displacement8 d)
+        | d < 0     = "- " ++ show (-1 * d)
+        | otherwise = "+ " ++ show d
+    display (Displacement32 d)
+        | d < 0     = "- " ++ show (-1 * d)
+        | otherwise = "+ " ++ show d
+
+
 data Scale =
       NoScale
     | Scale2
@@ -164,10 +193,22 @@ data Scale =
     deriving Show
 
 
+instance Display Scale where
+    display NoScale = ""
+    display Scale2  = "2 *"
+    display Scale4  = "4 *"
+    display Scale8  = "8 *"
+
+
 data ImmediateDescriptor =
       Literal [Word8]
     | Symbol  Size    String
     deriving Show
+
+
+instance Display ImmediateDescriptor where
+    display (Literal bytes) = intercalate ", " $ map show bytes
+    display (Symbol _ s)    = s
 
 
 data Operand =
@@ -176,6 +217,14 @@ data Operand =
     | Immediate  ImmediateDescriptor
     | Relative   ImmediateDescriptor
     deriving Show
+
+
+instance Display Operand where
+    display (Register r)      = display r
+    display (Address b s i d) = "[" ++ display b ++ " + " ++ display s ++
+                                display i ++ display d ++ "]"
+    display (Immediate i)     = display i
+    display (Relative i)      = display i
 
 
 data Instruction = Instruction {
@@ -187,10 +236,21 @@ data Instruction = Instruction {
 }   deriving Show
 
 
+instance Display Instruction where
+    display inst = labels ++ "    " ++ display (command inst) ++ " " ++ opers
+        where labels = concat (map (++ ":\n") $ labelNames inst)
+              opers  = intercalate ", " $ map display $ operands inst
+
+
 data CodeSection = CodeSection {
     sectionName  :: String,
     instructions :: [Instruction]
 }   deriving Show
+
+
+instance Display CodeSection where
+    display sec = "section " ++ sectionName sec ++ "\n" ++
+                  (intercalate "\n" $ map display $ instructions sec)
 
 
 -- A description of the possible values of an operand, based on ref.x86asm.net

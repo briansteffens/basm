@@ -21,6 +21,11 @@ data Error =
     deriving Show
 
 
+instance Display Error where
+    display (Error       s) = "Error: " ++ s
+    display (LineError l s) = "Error: " ++ s ++ "\n" ++ display l
+
+
 data Section = Section {
     name     :: String,
     contents :: [L.Line]

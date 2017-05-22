@@ -7,6 +7,7 @@ import Control.Monad
 import qualified Data.ByteString.Lazy as B
 
 import Shared
+import Definitions
 import qualified Lexer  as L
 import qualified Parser as P
 import qualified Elf    as E
@@ -62,11 +63,11 @@ main = do
 
     let o = intercalate "\n" [
            "basm lines ---------------------------------------------------\n",
-           intercalate "\n" (map show lines),
+           intercalate "\n" (map display lines),
            "\nbasm ast -----------------------------------------------------",
-           ("\n" ++ (intercalate "\n\n" (map show sections))),
+           ("\n" ++ (intercalate "\n\n" (map display sections))),
            "\nbasm results -------------------------------------------------",
-           ("\nerrors:\n" ++ (intercalate "\n" (map show errors)))]
+           ("\nerrors:\n" ++ (intercalate "\n" (map display errors)))]
 
     when (verbose args) $ putStrLn o
 
