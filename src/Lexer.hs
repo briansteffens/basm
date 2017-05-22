@@ -9,10 +9,10 @@ import qualified Text.Read as TR
 import Debug.Trace (trace)
 
 import Shared
-import qualified Definitions as D
+import Definitions
 
 
-data SymbolType
+data TSymbolType
     = Comma
     | Dollar
     | LeftBracket
@@ -24,13 +24,13 @@ data SymbolType
 
 
 data Token
-    = Word     String
-    | Command  D.Command
-    | Register D.Registers
-    | Label    String
-    | Quote    String
-    | Symbol   SymbolType
-    | Number   Integer
+    = TWord     String
+    | TCommand  Command
+    | TRegister Registers
+    | TLabel    String
+    | TQuote    String
+    | TSymbol   TSymbolType
+    | TNumber   Integer
     deriving (Eq, Show)
 
 
@@ -38,14 +38,14 @@ data Line = Line {
     sourceCode :: String,
     lineNumber :: Int,
     tokens     :: [Token]
-}   deriving Show
+}   deriving (Eq, Show)
 
 
-instance D.Display Line where
+instance Display Line where
     display line = "[" ++ show (lineNumber line) ++ "] " ++ (sourceCode line)
 
 
-readSymbolType :: Char -> Maybe SymbolType
+readSymbolType :: Char -> Maybe TSymbolType
 readSymbolType ',' = Just Comma
 readSymbolType '$' = Just Dollar
 readSymbolType '[' = Just LeftBracket
@@ -56,21 +56,21 @@ readSymbolType '*' = Just Asterisk
 readSymbolType  _  = Nothing
 
 
--- Read a string into either a Register, Command, or Word
+-- Read a string into either a TRegister, TCommand, or TWord
 readString :: String -> Token
 readString s
-    | isJust register = Register $ fromJust register
-    | isJust command  = Command  $ fromJust command
-    | otherwise       = Word s
+    | isJust register = TRegister $ fromJust register
+    | isJust command  = TCommand  $ fromJust command
+    | otherwise       = TWord s
     where upper    = map toUpper s
-          register = TR.readMaybe upper :: Maybe D.Registers
-          command  = TR.readMaybe upper :: Maybe D.Command
+          register = TR.readMaybe upper :: Maybe Registers
+          command  = TR.readMaybe upper :: Maybe Command
 
 
--- Read characters until a delimiter into a Word or Label
+-- Read characters until a delimiter into a TWord or TLabel
 consumeWord :: String -> String -> ([Token], String)
 consumeWord []        acc = ([readString acc], [])
-consumeWord (':':rem) acc = ([Label      acc], rem)
+consumeWord (':':rem) acc = ([TLabel     acc], rem)
 consumeWord (c  :rem) acc
     | isDelimiter = ([readString acc], [c] ++ rem)
     | otherwise   = consumeWord rem (acc ++ [c])
@@ -80,10 +80,10 @@ consumeWord (c  :rem) acc
 
 -- Read digits until a non-digit into a Number
 consumeNumber :: String -> String -> ([Token], String)
-consumeNumber []      acc = ([Number $ read acc], [])
+consumeNumber []      acc = ([TNumber $ read acc], [])
 consumeNumber (c:rem) acc
     | isDigit c = consumeNumber rem (acc ++ [c])
-    | otherwise = ([Number $ read acc], [c] ++ rem)
+    | otherwise = ([TNumber $ read acc], [c] ++ rem)
 
 
 -- Read one character from a quote
@@ -103,7 +103,7 @@ consumeQuoteChar (c        :rem) = (Just c   , rem)
 consumeQuote :: String -> String -> ([Token], String)
 consumeQuote acc rem = case consumeQuoteChar rem of
     (Just c , rem) -> consumeQuote (acc ++ [c]) rem
-    (Nothing, rem) -> ([Quote acc], rem)
+    (Nothing, rem) -> ([TQuote acc], rem)
 
 
 -- Read the next token from a string
@@ -115,7 +115,7 @@ lexToken ('"' :rem) = consumeQuote "" rem
 lexToken (c   :rem)
     | isDigit c = consumeNumber ([c] ++ rem) ""
     | otherwise = case readSymbolType c of
-        Just s  -> ([Symbol s], rem)
+        Just s  -> ([TSymbol s], rem)
         Nothing -> consumeWord ([c] ++ rem) ""
 
 

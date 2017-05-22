@@ -1,14 +1,30 @@
-name:                basm
-version:             0.1.0.0
-license:             GPL-2
-license-file:        LICENSE
-author:              Brian Steffens
-maintainer:          briansteffens@gmail.com
-build-type:          Simple
-extra-source-files:  ChangeLog.md
-cabal-version:       >=1.10
+name:               basm
+version:            0.1.0.0
+license:            GPL-2
+license-file:       LICENSE
+author:             Brian Steffens
+maintainer:         briansteffens@gmail.com
+build-type:         Simple
+extra-source-files: ChangeLog.md
+cabal-version:      >=1.10
 
 executable basm
-  main-is:             Main.hs
-  build-depends:       base >=4.9 && <4.10, binary, bytestring, containers
-  default-language:    Haskell2010
+  hs-source-dirs:   src
+  main-is:          Main.hs
+  build-depends:    base >=4.9 && <4.10,
+                    binary,
+                    bytestring,
+                    containers
+  default-language: Haskell2010
+
+Test-Suite test-basm
+  type:           exitcode-stdio-1.0
+  hs-source-dirs: testsuite, src
+  main-is:        Test.hs
+  build-depends:  base >=4.9 && <4.10,
+                  binary,
+                  bytestring,
+                  containers,
+                  test-framework,
+                  test-framework-hunit,
+                  HUnit

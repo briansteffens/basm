@@ -11,10 +11,8 @@ case "$1" in
         echo $?
         ;;
     basm)
-        #cabal build
-        #dist/build/basm/basm $SRC
-        ghc Main.hs #-prof -fprof-auto -fprof-cafs
-        ./Main $SRC -v #+RTS -xc
+        cabal build
+        dist/build/basm/basm $SRC
         mv $OBJ basm.o
 
         ld basm.o -o basm.a
