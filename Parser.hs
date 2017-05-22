@@ -26,12 +26,6 @@ instance Display Error where
     display (LineError l s) = "Error: " ++ s ++ "\n" ++ display l
 
 
-data Section = Section {
-    name     :: String,
-    contents :: [L.Line]
-} deriving Show
-
-
 isLabel :: L.Token -> Bool
 isLabel (L.Label _) = True
 isLabel          _  = False
@@ -43,8 +37,7 @@ matchSymbol a (L.Symbol b) = a == b
 matchSymbol _           _  = False
 
 
--- Take lines that consist of only labels and prepend those labels to the next
--- line
+-- Take lines that consist of only labels and prepend them to the next line
 combineLabels :: [L.Line] -> [L.Token] -> [L.Line]
 combineLabels [] [] = []
 combineLabels [] _  = error("Labels at the end of file")
@@ -209,35 +202,34 @@ parseSectionName _ = Nothing
 
 
 -- Divide lines into sections
-readSections :: [L.Line] -> [Section]
-readSections [] = []
-readSections (cur:rem) = [section] ++ recur
+splitSections :: [L.Line] -> [(String, [L.Line])]
+splitSections [] = []
+splitSections (cur:rem) = [(sectionName, lines)] ++ recur
     where sectionName   = case parseSectionName cur of
                               Just n  -> n
                               Nothing -> error("Code found outside a section")
           (lines, next) = break (\l -> isJust $ parseSectionName l) rem
-          section       = Section { name = sectionName, contents = lines }
-          recur         = readSections next
+          recur         = splitSections next
 
 
 -- Parse a section
-codeSection :: Section -> Either [Error] CodeSection
-codeSection sec
+section :: (String, [L.Line]) -> Either [Error] Section
+section (name, lines)
     | not $ null err = Left err
-    | otherwise      = Right $ CodeSection {
-        sectionName  = name sec,
+    | otherwise      = Right $ Section {
+        sectionName  = name,
         instructions = insts
     }
-    where (err, insts) = partitionEithers $ map parseInst $ contents sec
+    where (err, insts) = partitionEithers $ map parseInst lines
           parseInst l  = case instruction l of
                              Just i  -> Right i
                              Nothing -> Left $ LineError l "Parser error"
 
 
 -- Parse a list of lexer lines
-parse :: [L.Line] -> Either [Error] ([Directive], [CodeSection])
+parse :: [L.Line] -> Either [Error] ([Directive], [Section])
 parse lines
     | null err  = Right (dir, ret)
     | otherwise = Left $ concat err
     where (dir, rem) = extractDirectives $ combineLabels lines []
-          (err, ret) = partitionEithers $ map codeSection $ readSections rem
+          (err, ret) = partitionEithers $ map section $ splitSections rem

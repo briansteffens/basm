@@ -621,7 +621,7 @@ combineContents ((sh, bytes):remaining) offset = do
 
 
 -- Encode and assemble an ELF file.
-assemble :: [D.CodeSection] -> [D.Directive] -> (B.ByteString, String)
+assemble :: [D.Section] -> [D.Directive] -> (B.ByteString, String)
 assemble codeSections directives = do
     -- Encode instructions
     let progBitsEncoded = map E.encodeSection codeSections

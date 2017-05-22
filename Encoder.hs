@@ -83,7 +83,7 @@ data Label = Label {
 
 
 data EncodedSection = EncodedSection {
-    section :: CodeSection,
+    section :: Section,
     bytes   :: [Word8],
     labels  :: [Label],
     symbols :: [NamedOffset]
@@ -698,7 +698,7 @@ exceptions inst = inst
 
 
 -- Encode a section.
-encodeSection :: CodeSection -> EncodedSection
+encodeSection :: Section -> EncodedSection
 encodeSection sec = do
     let insts = map exceptions (instructions sec)
 

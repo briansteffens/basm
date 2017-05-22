@@ -242,13 +242,13 @@ instance Display Instruction where
               opers  = intercalate ", " $ map display $ operands inst
 
 
-data CodeSection = CodeSection {
+data Section = Section {
     sectionName  :: String,
     instructions :: [Instruction]
 }   deriving Show
 
 
-instance Display CodeSection where
+instance Display Section where
     display sec = "section " ++ sectionName sec ++ "\n" ++
                   (intercalate "\n" $ map display $ instructions sec)
 
