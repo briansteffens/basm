@@ -11,7 +11,7 @@ cabal-version:      >=1.10
 executable basm
   hs-source-dirs:   src
   main-is:          Main.hs
-  build-depends:    base >=4.9 && <4.10,
+  build-depends:    base,
                     binary,
                     bytestring,
                     containers
@@ -21,7 +21,7 @@ Test-Suite test-basm
   type:           exitcode-stdio-1.0
   hs-source-dirs: testsuite, src
   main-is:        Test.hs
-  build-depends:  base >=4.9 && <4.10,
+  build-depends:  base,
                   binary,
                   bytestring,
                   containers,
