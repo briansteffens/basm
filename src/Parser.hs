@@ -90,6 +90,7 @@ disp (TNumber n:TSymbol Plus :rem) = (parseDisplacement  n       , rem)
 disp (TNumber n:TSymbol Minus:rem) = (parseDisplacement  (-1 * n), rem)
 disp [TWord s]                     = (DisplacementSymbol DWORD s , [] )
 disp (TWord s  :TSymbol Plus :rem) = (DisplacementSymbol DWORD s , rem)
+disp rem                           = (NoDisplacement             , rem)
 
 
 -- Extract a scale and index from an operand if they exist
@@ -137,8 +138,9 @@ operand _ p = if not isIndirect then Nothing else indirect $ tail $ init p
 
 -- Parse a DB pseudo-instruction operand, which converts everything to bytes
 dbOperand :: Token -> [Word8]
-dbOperand (TNumber n) = [fromIntegral n :: Word8]
-dbOperand (TQuote  s) = map fromIntegral $ map ord s
+dbOperand (TNumber n)     = [fromIntegral n :: Word8]
+dbOperand (TQuote  s)     = map fromIntegral $ map ord s
+dbOperand (TSymbol Comma) = []
 
 
 -- Split a list of tokens on commas
