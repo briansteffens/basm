@@ -429,6 +429,40 @@ encodings = [
         primary      = 0x95
     },
 
+----SHL encodings--------------------------------------------------------------
+
+    enc {
+        mnemonic     = SHL,
+        patterns     = [P_rm8, P_imm8],
+        primary      = 0xC0,
+        opExtension  = Just 6
+    },
+    enc {
+        mnemonic     = SHL,
+        patterns     = [P_rm163264, P_imm8],
+        primary      = 0xC1,
+        opExtension  = Just 6,
+        default32    = True
+    },
+    -- TODO: SHL [rm_8, 1] and SHL [rm_8, CL]
+
+----SHR encodings--------------------------------------------------------------
+--
+    enc {
+        mnemonic     = SHR,
+        patterns     = [P_rm8, P_imm8],
+        primary      = 0xC0,
+        opExtension  = Just 5
+    },
+    enc {
+        mnemonic     = SHR,
+        patterns     = [P_rm163264, P_imm8],
+        primary      = 0xC1,
+        opExtension  = Just 5,
+        default32    = True
+    },
+    -- TODO: SHR [rm_8, 1] and SHR [rm_8, CL]
+
 ----SUB encodings--------------------------------------------------------------
 
     enc {

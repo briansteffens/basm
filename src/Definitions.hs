@@ -43,6 +43,8 @@ data Command =
     | SETL
     | SETLE
     | SETNE
+    | SHL
+    | SHR
     | SUB
     | SYSCALL
     | TEST
