@@ -9,9 +9,9 @@ _start:
     mov rax, 1
     mov rdi, 1
     mov rsi, message
-    mov rdx, 5
+    mov rdx, 11
     syscall
 
     mov rax, 60
-    mov rdi, 123
+    mov rdi, 0
     syscall
