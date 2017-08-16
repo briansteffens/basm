@@ -89,6 +89,68 @@ encodings = [
         opExtension  = Just 0
     },
 
+----AND encodings--------------------------------------------------------------
+
+    enc {
+        mnemonic     = AND,
+        patterns     = [P_rm8, P_r8],
+        primary      = 0x20,
+        registerAdd  = True
+    },
+    enc {
+        mnemonic     = AND,
+        patterns     = [P_rm163264, P_r163264],
+        primary      = 0x21,
+        default32    = True,
+        registerAdd  = True
+    },
+    enc {
+        mnemonic     = AND,
+        patterns     = [P_r8, P_rm8],
+        primary      = 0x22,
+        reverseOpers = True,
+        registerAdd  = True
+    },
+    enc {
+        mnemonic     = AND,
+        patterns     = [P_r163264, P_rm163264],
+        primary      = 0x23,
+        reverseOpers = True,
+        default32    = True,
+        registerAdd  = True
+    },
+    enc {
+        mnemonic     = AND,
+        patterns     = [R AL, P_imm8],
+        primary      = 0x24
+    },
+    enc {
+        mnemonic     = AND,
+        patterns     = [R RAX, P_imm1632],
+        primary      = 0x25,
+        modRmByte    = False,
+        default32    = True
+    },
+    enc {
+        mnemonic     = AND,
+        patterns     = [P_rm8, P_imm8],
+        primary      = 0x80,
+        opExtension  = Just 4
+    },
+    enc {
+        mnemonic     = AND,
+        patterns     = [P_rm163264, P_imm1632],
+        primary      = 0x81,
+        opExtension  = Just 4,
+        default32    = True
+    },
+    enc {
+        mnemonic     = AND,
+        patterns     = [P_rm163264, P_imm8],
+        primary      = 0x83,
+        opExtension  = Just 4
+    },
+
 ----CALL encodings-------------------------------------------------------------
 
     enc {
