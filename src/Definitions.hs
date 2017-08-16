@@ -25,6 +25,7 @@ data Command =
     | CMP
     | DEC
     | IDIV
+    | IMUL
     | INC
     | JE
     | JG

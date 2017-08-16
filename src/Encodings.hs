@@ -246,6 +246,17 @@ encodings = [
         opExtension  = Just 7
     },
 
+----IMUL encodings-------------------------------------------------------------
+
+    enc {
+        mnemonic     = IMUL,
+        patterns     = [P_r163264, P_rm163264],
+        primary      = 0xAF,
+        default32    = True,
+        reverseOpers = True,
+        prefix0f     = True
+    },
+
 ----INC encodings--------------------------------------------------------------
 
     enc {
