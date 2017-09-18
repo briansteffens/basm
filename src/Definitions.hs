@@ -30,6 +30,7 @@ data Command =
     | JE
     | JG
     | JMP
+    | JNE
     | LEA
     | MOV
     | NEG
@@ -68,7 +69,7 @@ dataCommands = [DB, DW, DD, DQ]
 
 
 -- Jump/call commands whose operands reference RIP-relative addresses
-jumpCommands = [CALL, JE, JG, JMP]
+jumpCommands = [CALL, JE, JG, JMP, JNE]
 
 
 data Size =

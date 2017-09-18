@@ -320,6 +320,22 @@ encodings = [
         primary      = 0xE9
     },
 
+----JNE encodings--------------------------------------------------------------
+
+    enc {
+        mnemonic     = JNE,
+        patterns     = [P_rel8],
+        modRmByte    = False,
+        primary      = 0x75
+    },
+    enc {
+        mnemonic     = JNE,
+        patterns     = [P_rel1632],
+        modRmByte    = False,
+        prefix0f     = True,
+        primary      = 0x85
+    },
+
 ----LEA encodings--------------------------------------------------------------
 
     enc {
