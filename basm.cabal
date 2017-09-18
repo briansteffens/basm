@@ -16,6 +16,13 @@ executable basm
                     bytestring,
                     containers
   default-language: Haskell2010
+  other-modules:    Definitions,
+                    Elf,
+                    Encoder,
+                    Encodings,
+                    Lexer,
+                    Parser,
+                    Shared
 
 Test-Suite test-basm
   type:           exitcode-stdio-1.0
@@ -28,3 +35,4 @@ Test-Suite test-basm
                   test-framework,
                   test-framework-hunit,
                   HUnit
+  default-language: Haskell2010
