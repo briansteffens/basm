@@ -57,9 +57,12 @@ main = do
     let lines = L.lexer contents
 
     let parseRes   = P.parse lines
-    let errors     = if isLeft  parseRes then fromLeft parseRes        else []
-    let directives = if isRight parseRes then fst (fromRight parseRes) else []
-    let sections   = if isRight parseRes then snd (fromRight parseRes) else []
+    let errors     = if isLeft  parseRes then Shared.fromLeft parseRes
+                     else []
+    let directives = if isRight parseRes then fst (Shared.fromRight parseRes)
+                     else []
+    let sections   = if isRight parseRes then snd (Shared.fromRight parseRes)
+                     else []
 
     let o = intercalate "\n" [
            "basm lines ---------------------------------------------------\n",
