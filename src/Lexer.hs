@@ -87,22 +87,29 @@ consumeNumber (c:rem) acc
 
 
 -- Read one character from a quote
-consumeQuoteChar :: String -> (Maybe Char, String)
-consumeQuoteChar []              = error("Unexpected end of quote")
-consumeQuoteChar ('\\':'n' :rem) = (Just '\n', rem)
-consumeQuoteChar ('\\':'t' :rem) = (Just '\t', rem)
-consumeQuoteChar ('\\':'\\':rem) = (Just '\\', rem)
-consumeQuoteChar ('\\':'\'':rem) = (Just '\'', rem)
-consumeQuoteChar ('\\':'"' :rem) = (Just '"' , rem)
-consumeQuoteChar ('"' :'"' :rem) = (Just '"' , rem)
-consumeQuoteChar ('"'      :rem) = (Nothing  , rem)
-consumeQuoteChar (c        :rem) = (Just c   , rem)
+consumeQuoteChar :: String -> Char ->  (Maybe Char, String)
+consumeQuoteChar []              _ = error("Unexpected end of quote")
+consumeQuoteChar ('\\':'n' :rem) _ = (Just '\n', rem)
+consumeQuoteChar ('\\':'t' :rem) _ = (Just '\t', rem)
+consumeQuoteChar ('\\':'\\':rem) _ = (Just '\\', rem)
+consumeQuoteChar ('\\':'\'':rem) _ = (Just '\'', rem)
+consumeQuoteChar ('\\':'"' :rem) _ = (Just '"' , rem)
+consumeQuoteChar ('\\':'`' :rem) _ = (Just '`' , rem)
+consumeQuoteChar ('"' :'"' :rem) _ = (Just '"' , rem)
+consumeQuoteChar (c        :rem) q
+    -- End of quote
+    | c == q = (Nothing, rem)
+    -- Normal character
+    | otherwise = (Just c, rem)
+--consumeQuoteChar ('"'      :rem) _ = (Nothing  , rem)
+--consumeQuoteChar (c        :rem) _ = (Just c   , rem)
 
 
--- Read the contents of a string until the closing quote
-consumeQuote :: String -> String -> ([Token], String)
-consumeQuote acc rem = case consumeQuoteChar rem of
-    (Just c , rem) -> consumeQuote (acc ++ [c]) rem
+-- Read the contents of a string with the given quote char until the closing
+-- quote
+consumeQuote :: Char -> String -> String -> ([Token], String)
+consumeQuote qc acc rem = case consumeQuoteChar rem qc of
+    (Just c , rem) -> consumeQuote qc (acc ++ [c]) rem
     (Nothing, rem) -> ([TQuote acc], rem)
 
 
@@ -111,7 +118,8 @@ lexToken :: String -> ([Token], String)
 lexToken (' ' :rem) = ([], rem)
 lexToken ('\t':rem) = ([], rem)
 lexToken (';' :rem) = ([], [])
-lexToken ('"' :rem) = consumeQuote "" rem
+lexToken ('"' :rem) = consumeQuote '"' "" rem
+lexToken ('`' :rem) = consumeQuote '`' "" rem
 lexToken (c   :rem)
     | isDigit c = consumeNumber ([c] ++ rem) ""
     | otherwise = case readSymbolType c of
